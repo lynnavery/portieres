@@ -1,0 +1,39 @@
+portieres~ contains the DSP code of Beads by Mutable Instruments, taken
+unmodified from https://github.com/pichenettes/eurorack (commit d8f4739,
+directory beads/), together with the stmlib library
+(https://github.com/pichenettes/stmlib, in source/stmlib/, see LICENSE-stmlib).
+
+Upstream licensing statement (pichenettes/eurorack README):
+  "Code (STM32F projects): MIT license.  By: Emilie Gillet."
+Beads is an STM32F project. The same MIT notice is in every source file header:
+
+------------------------------------------------------------------------------
+Copyright 2014-2021 Emilie Gillet.
+
+Author: Emilie Gillet (emilie.o.gillet@gmail.com)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+------------------------------------------------------------------------------
+
+"Mutable Instruments" is a registered trademark. This is an unofficial
+derivative work, not made or endorsed by Mutable Instruments, and is
+therefore named "portieres~" rather than after the original module.
+
+The Max wrapper code in source/ext/ is a new work for this port. The Max SDK
+base (source/max-sdk-base/) is (c) Cycling '74, see its LICENSE.md.

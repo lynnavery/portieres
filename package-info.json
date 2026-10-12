@@ -1,0 +1,11 @@
+{
+	"name": "portieres",
+	"version": "0.1.0",
+	"author": "Port of Mutable Instruments Beads (Emilie Gillet, MIT)",
+	"description": "portieres~: Max external port of the Mutable Instruments Beads granular processor",
+	"homepatcher": "",
+	"max_version_min": "9.0",
+	"max_version_max": "none",
+	"os": { "macintosh": { "min_version": "11" } },
+	"package_extra": {}
+}
