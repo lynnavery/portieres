@@ -6,6 +6,6 @@
 	"homepatcher": "",
 	"max_version_min": "9.0",
 	"max_version_max": "none",
-	"os": { "macintosh": { "min_version": "11" } },
+	"os": { "macintosh": { "min_version": "11" }, "windows": { "min_version": "10" } },
 	"package_extra": {}
 }

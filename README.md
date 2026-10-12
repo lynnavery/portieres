@@ -15,13 +15,24 @@ See Max Helper object
 - Random state is a global shared between instances.
 
 ## Install
-Unzip, move the `portieres` folder into `~/Documents/Max 9/Packages/`, restart Max.
-If macOS blocks the external (it is ad-hoc signed, not notarized):
+Unzip, move the `portieres` folder into your Max 9 Packages folder, restart Max.
+- macOS: `~/Documents/Max 9/Packages/`. If macOS blocks the external (it is ad-hoc signed, not notarized):
 `xattr -dr com.apple.quarantine ~/Documents/Max\ 9/Packages/portieres`
+- Windows: `Documents\Max 9\Packages\`. The package contains `portieres~.mxe64`.
+
 ## Building from Source
+CI builds both platforms on every push (see `.github/workflows/build.yml`).
 ### Mac
 Build: `source/build.sh` (clang only, no Xcode/CMake). Offline tests: `source/build_test.sh`
 Restart Max after rebuilding (it won't reload a replaced .mxo)
+### Windows
+Requires Visual Studio 2022 with the C++ Clang tools (clang-cl) and CMake:
+```
+cmake -S source -B build -G "Visual Studio 17 2022" -A x64 -T ClangCL
+cmake --build build --config Release
+```
+Output: `externals/portieres~.mxe64`. Restart Max after rebuilding.
+
 ## Credits and license
 DSP: Beads by Mutable Instruments, (c) Emilie Gillet, MIT. See `LICENSE-beads.txt`
 and `LICENSE-stmlib`. Unofficial port, not affiliated with Mutable Instruments.
