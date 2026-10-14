@@ -147,6 +147,10 @@ class GranularProcessor {
     }
   }
   
+  void set_grain_observer(GrainObserver* observer) {
+    granular_player_.set_observer(observer);
+  }
+
   inline void Process(
       const TriggerGenerator::Output* triggers,
       const DelayController::Output* taps,

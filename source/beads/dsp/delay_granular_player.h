@@ -36,10 +36,30 @@
 
 namespace beads {
 
+// Reported to an observer (if set) every time a grain starts. portieres~ port
+// addition, used for visualisation; it does not change the audio.
+struct GrainEvent {
+  float time;        // read position, 0..1 across the buffer (Time knob)
+  float pitch_ratio; // playback speed ratio, always positive
+  float duration;    // seconds
+  float shape;       // 0..1
+  float amplitude;
+  float pan;         // 0..1, 0.5 centre
+  bool reverse;
+};
+
+class GrainObserver {
+ public:
+  virtual ~GrainObserver() { }
+  virtual void OnGrain(const GrainEvent& e) = 0;
+};
+
 class DelayGranularPlayer : public GranularPlayer<DelayGrain, 32> {
  public:
-  DelayGranularPlayer() { }
+  DelayGranularPlayer() : observer_(NULL) { }
   ~DelayGranularPlayer() { }
+
+  void set_observer(GrainObserver* observer) { observer_ = observer; }
   
   template<typename DelayLineType>
   inline void Render(
@@ -57,14 +77,32 @@ class DelayGranularPlayer : public GranularPlayer<DelayGrain, 32> {
       const int safety = DelayGrain::head_crossing_safety_zone + 1;
       const int max_delay = delay_line->duration() - 2 * safety;
 
+      // Locals keep the original argument evaluation order (and so the
+      // random sequence).
+      const float time = p.time.value();
+      const float pitch_ratio = p.pitch.pitch_value();
+      const float grain_duration = ComputeGrainDuration(duration);
+      const float shape = p.shape.value();
+
       new_grain()->Start(
           delay_line,
-          p.time.value() * float(max_delay) + float(safety),
-          (reverse ? -1.0f : 1.0f) * p.pitch.pitch_value(),
-          ComputeGrainDuration(duration),
-          p.shape.value(),
+          time * float(max_delay) + float(safety),
+          (reverse ? -1.0f : 1.0f) * pitch_ratio,
+          grain_duration,
+          shape,
           amplitude, pan,
           trigger.fractional_sample);
+      if (observer_) {
+        GrainEvent e;
+        e.time = time;
+        e.pitch_ratio = pitch_ratio;
+        e.duration = grain_duration / sample_rate_;
+        e.shape = shape;
+        e.amplitude = amplitude;
+        e.pan = pan;
+        e.reverse = reverse;
+        observer_->OnGrain(e);
+      }
       SortGrainList(p.monophonic_mode);
     }
 
@@ -76,6 +114,7 @@ class DelayGranularPlayer : public GranularPlayer<DelayGrain, 32> {
   }
 
  private:
+  GrainObserver* observer_;
   DISALLOW_COPY_AND_ASSIGN(DelayGranularPlayer);
 };
 

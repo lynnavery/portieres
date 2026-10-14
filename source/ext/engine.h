@@ -27,6 +27,17 @@ struct Params {
   long gate_out = 0;
 };
 
+// One entry per grain started (granular mode; delay mode has taps, not grains).
+struct GrainEvent {
+  float time;         // read position 0..1 across the buffer
+  float pitch_ratio;  // playback speed ratio (> 0)
+  float duration;     // seconds
+  float shape;        // 0..1
+  float amplitude;
+  float pan;          // 0..1, 0.5 = centre
+  bool reverse;
+};
+
 class Engine {
  public:
   Engine();
@@ -37,8 +48,14 @@ class Engine {
   void Setup(double host_sr, int max_vector, int media, bool mono);
 
   // in[] has NUM_INPUTS entries; unconnected inputs are nullptr.
+  // out_trig (optional) gets a 1-sample impulse (1.0) per grain start, time
+  // aligned with out_l/out_r and quantised to one codec block (~0.25 ms).
   void Process(const Params& p, const float* const* in, float* out_l,
-               float* out_r, size_t n);
+               float* out_r, size_t n, float* out_trig = nullptr);
+
+  // Drains grain events (any thread; single consumer). Returns the count.
+  size_t PopGrains(GrainEvent* out, size_t max);
+  bool HasGrains() const;
 
   double codec_rate() const;
   int latency_samples() const { return latency_; }
