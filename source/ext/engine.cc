@@ -31,12 +31,20 @@ inline float Clamp(float x, float lo, float hi) {
   return x < lo ? lo : (x > hi ? hi : x);
 }
 
-// Beats per LFO cycle for division index 0..17: 0.25 * 2^(k/3) * {2/3, 1, 1.5}[k%3]
-// i.e. 1/16T 1/16 1/16. 1/8T 1/8 1/8. ... 2/1T 2/1 2/1.  (a quarter note = 1 beat)
-float DivisionBeats(long k) {
-  k = k < 0 ? 0 : (k > 17 ? 17 : k);
-  static const float kFactor[3] = { 2.0f / 3.0f, 1.0f, 1.5f };
-  return 0.25f * std::ldexp(1.0f, int(k / 3)) * kFactor[k % 3];
+// Length of one LFO cycle in ticks (480 per quarter note) for sync division index 0..23, the table of
+// Live's LFO: 1/64 1/48 1/32 1/24 1/16 1/12 1/8 1/6 3/16 1/4 5/16 1/3 3/8 1/2 3/4 1 1.5 2 3 4 6 8 16 32
+// (note values: 1/4 is one beat, 1 is a whole note, 32 is 32 whole notes).
+float DivisionTicks(long k) {
+  static const float kTicks[24] = { 30, 40, 60, 80, 120, 160, 240, 320, 360, 480, 600, 640,
+                                    720, 960, 1440, 1920, 2880, 3840, 5760, 7680, 11520, 15360, 30720, 61440 };
+  return kTicks[k < 0 ? 0 : (k > 23 ? 23 : k)];
+}
+
+inline float RandomSigned(uint32_t* state) {           // xorshift, -1..1
+  uint32_t x = *state;
+  x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+  *state = x;
+  return float(x >> 8) * (2.0f / 16777216.0f) - 1.0f;
 }
 }  // namespace
 
@@ -71,6 +79,15 @@ struct Engine::Impl : public beads::GrainObserver {
   bool lfo_init = false;
   std::atomic<float> ro_l[kNumLfos], ro_r[kNumLfos], ro_phase[kNumLfos], ro_hz[kNumLfos];
   float cur_hz[kNumLfos] = { 1.0f, 1.0f, 1.0f, 1.0f };   // effective speed of each LFO, per block
+  // time-domain state of the LFO pipeline (jitter, smooth, hold)
+  float smooth_y[kNumLfos] = { 0.5f, 0.5f, 0.5f, 0.5f };
+  float jit_phase[kNumLfos] = { 0, 0, 0, 0 }, jit_prev[kNumLfos] = { 0, 0, 0, 0 }, jit_next[kNumLfos] = { 0, 0, 0, 0 };
+  uint32_t jit_rng[kNumLfos] = { 0x2545F491u, 0x9E3779B9u, 0x6C078965u, 0xD1B54A35u };
+  bool was_hold[kNumLfos] = { false, false, false, false };
+  bool smooth_init = false;
+  // the LFOs as codec-rate signals, kept in step with the output like the trigger history
+  std::vector<float> lfo_hist[kLfoSignals];
+  double lfo_pos = 0.0;
 
   size_t ctl_avail() const { return ctl_w - ctl_r; }
 
@@ -163,6 +180,9 @@ void Engine::Setup(double host_sr, int max_vector, int media, bool mono) {
   s.trig_written = prime;  // same priming as src_out
   s.trig_pos = 0.0;
   s.trig_last = 0;
+  for (int k = 0; k < kLfoSignals; ++k) s.lfo_hist[k].assign(kTrigHist, 0.5f);
+  s.lfo_pos = 0.0;
+  s.smooth_init = false;
   s.grain_r.store(s.grain_w.load(std::memory_order_acquire),
                   std::memory_order_release);
   s.primed = true;
@@ -204,12 +224,13 @@ size_t Engine::PopGrains(GrainEvent* out, size_t max) {
 }
 
 void Engine::Process(const Params& p, const float* const* in, float* out_l,
-                     float* out_r, size_t n, float* out_trig) {
+                     float* out_r, size_t n, float* out_trig, float* const* out_lfo) {
   Impl& s = *impl_;
   if (!s.configured) {
     std::fill(out_l, out_l + n, 0.0f);
     std::fill(out_r, out_r + n, 0.0f);
     if (out_trig) std::fill(out_trig, out_trig + n, 0.0f);
+    if (out_lfo) for (int k = 0; k < kLfoSignals; ++k) if (out_lfo[k]) std::fill(out_lfo[k], out_lfo[k] + n, 0.5f);
     return;
   }
 
@@ -309,13 +330,43 @@ void Engine::Process(const Params& p, const float* const* in, float* out_l,
           s.last_reset[i] = lp.reset;
           gm.cycles[i] = 0.0;
         }
-        const float hz = lp.sync ? (bpm / 60.0f) / DivisionBeats(lp.div)
-                                 : Clamp(lp.rate, 0.0f, 100.0f);
+        // one cycle lasts DivisionTicks ticks; 480 ticks are one beat
+        const float hz = lp.sync ? (bpm / 60.0f) * 480.0f / DivisionTicks(lp.div)
+                                 : Clamp(lp.rate, 0.0f, 40.0f) * (lp.x10 ? 10.0f : 1.0f);
         gm.cycles[i] += double(hz) * block_seconds;
         s.cur_hz[i] = hz;
-        gm.shape[i] = uint8_t(lp.shape < 0 ? 0 : (lp.shape > 6 ? 6 : lp.shape));
+        gm.shape[i] = uint8_t(lp.shape < 0 ? 0 : (lp.shape >= beads::LFO_NUM_SHAPES ? beads::LFO_NUM_SHAPES - 1 : lp.shape));
         gm.split[i] = Clamp(lp.split_deg, 0.0f, 360.0f) / 360.0f;
+        gm.wave[i] = Clamp(lp.wave, -100.0f, 100.0f) * 0.01f;
+        gm.steps[i] = uint8_t(lp.steps < 0 ? 0 : (lp.steps > 24 ? 24 : lp.steps));
+        gm.offset01[i] = Clamp(0.5f + lp.offset * 0.005f, 0.0f, 1.0f);
+        gm.depth01[i] = Clamp(lp.depth * 0.01f, 0.0f, 1.0f);
+
+        // Time-domain part: jitter (a random wobble at 10 Hz) then smooth (a slew of 0..200 ms), both on top
+        // of the pure shape at the centre. Per-grain reads add the same `post`.
+        const float pure = gm.Shape(i, gm.cycles[i]);
+        s.jit_phase[i] += float(10.0 * block_seconds);
+        while (s.jit_phase[i] >= 1.0f) {
+          s.jit_phase[i] -= 1.0f;
+          s.jit_prev[i] = s.jit_next[i];
+          s.jit_next[i] = RandomSigned(&s.jit_rng[i]);
+        }
+        const float jit = Clamp(lp.jitter, 0.0f, 100.0f) / 150.0f *
+                          (s.jit_prev[i] + (s.jit_next[i] - s.jit_prev[i]) * s.jit_phase[i]);
+        const float x = pure + jit;
+        if (!s.smooth_init) s.smooth_y[i] = x;
+        const float n_smooth = std::max(1.0f, Clamp(lp.smooth, 0.0f, 100.0f) * 2.0f * 0.001f * float(s.codec_sr));
+        s.smooth_y[i] += (x - s.smooth_y[i]) * (1.0f - std::pow(1.0f - 1.0f / n_smooth, float(b)));
+        gm.post[i] = s.smooth_y[i] - pure;
+        if (lp.hold) {
+          if (!s.was_hold[i]) gm.held[i] = s.smooth_y[i];      // sample-and-hold at the press
+          gm.holding[i] = 1;
+        } else {
+          gm.holding[i] = 0;
+        }
+        s.was_hold[i] = lp.hold != 0;
       }
+      s.smooth_init = true;
       for (int dd = 0; dd < NUM_DESTS; ++dd)
         for (int i = 0; i < kNumLfos; ++i)
         { gm.depth[dd][i] = Clamp(p.mod[dd][i] * 0.01f, -1.0f, 1.0f); gm.unipolar[dd][i] = p.uni[dd][i] != 0; }
@@ -382,6 +433,13 @@ void Engine::Process(const Params& p, const float* const* in, float* out_l,
         s.trig_hist[(s.trig_written + i) & (kTrigHist - 1)] =
             (i == 0 && s.grains_seen != grains_before) ? 1.0f : 0.0f;
       }
+      // The LFOs of this block (what the left and right edges of the stereo field see), as signals.
+      for (int k = 0; k < kLfoSignals; ++k) {
+        const int li = k / 2;
+        const double half = 0.5 * double(gm.split[li]);
+        const float v = gm.Lfo(li, (k & 1) ? +half : -half);
+        for (size_t i = 0; i < b; ++i) s.lfo_hist[k][(s.trig_written + i) & (kTrigHist - 1)] = v;
+      }
       s.trig_written += b;
 
       for (size_t i = 0; i < b; ++i) {
@@ -408,6 +466,17 @@ void Engine::Process(const Params& p, const float* const* in, float* out_l,
     const size_t avail = std::min(s.src_out.Available(), m);
     if (avail) s.src_out.Pull(out_l + base, out_r + base, avail);
     for (size_t i = avail; i < m; ++i) out_l[base + i] = out_r[base + i] = 0.0f;
+
+    if (out_lfo) {
+      // The LFO signals walk their histories at the same rate as the output.
+      for (size_t i = 0; i < avail; ++i) {
+        const size_t idx = size_t(s.lfo_pos) & (kTrigHist - 1);
+        for (int k = 0; k < kLfoSignals; ++k) if (out_lfo[k]) out_lfo[k][base + i] = s.lfo_hist[k][idx];
+        s.lfo_pos += s.ctl_step;
+      }
+      for (size_t i = avail; i < m; ++i)
+        for (int k = 0; k < kLfoSignals; ++k) if (out_lfo[k]) out_lfo[k][base + i] = 0.5f;
+    }
 
     if (out_trig) {
       // Walk the flag history at the same rate src_out walks its input; emit

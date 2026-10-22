@@ -59,7 +59,7 @@ void ext_main(void* r) {
   class_addmethod(c, (method)beads_dsp64, "dsp64", A_CANT, 0);
   class_addmethod(c, (method)beads_assist, "assist", A_CANT, 0);
   class_addmethod(c, (method)beads_reset, "reset", 0);
-  // LFO bank: lfo <1-4> <shape|rate|sync|div|split|uni|reset> [value]
+  // LFO bank: lfo <1-4> <shape|rate|x10|sync|div|split|wave|steps|jitter|smooth|offset|depth|hold|reset> [value]
   class_addmethod(c, (method)beads_lfo, "lfo", A_GIMME, 0);
   // Matrix cell: amt <time|size|shape|pitch|density|feedback|reverb|drywet> <1-4> <percent>
   class_addmethod(c, (method)beads_amt, "amt", A_GIMME, 0);
@@ -155,6 +155,10 @@ void* beads_new(t_symbol* s, long argc, t_atom* argv) {
   if (!x) return nullptr;
   dsp_setup((t_pxobject*)x, NUM_INPUTS);
   // Outlets are created right to left. Outlets 0-3 keep their positions.
+  outlet_new((t_object*)x, "signal");             // 8: LFO 2, right edge (0..1)
+  outlet_new((t_object*)x, "signal");             // 7: LFO 2, left edge
+  outlet_new((t_object*)x, "signal");             // 6: LFO 1, right edge
+  outlet_new((t_object*)x, "signal");             // 5: LFO 1, left edge
   x->lfo_out = outlet_new((t_object*)x, NULL);    // 4: LFO values (on `poll`)
   x->grain_out = outlet_new((t_object*)x, NULL);  // 3: grain messages
   outlet_new((t_object*)x, "signal");             // 2: grain trigger impulses
@@ -201,11 +205,13 @@ void beads_assist(t_beads* x, void* b, long m, long a, char* s) {
     "(signal) Seed gate", "(signal) Freeze gate" };
   if (m == ASSIST_INLET) strncpy_zero(s, in_names[a], 256);
   else {
-    static const char* out_names[5] = {
+    static const char* out_names[9] = {
       "(signal) Out L", "(signal) Out R / gate",
       "(signal) Grain trigger (1-sample impulse per grain)",
       "grain <time> <pitch st> <dur ms> <shape> <amp> <pan> <reverse>",
-      "lfo <1-4> <value at left edge> <value at right edge> <phase 0-1> <speed in Hz> (one per LFO, on `poll`)" };
+      "lfo <1-4> <value at left edge> <value at right edge> <phase 0-1> <speed in Hz> (one per LFO, on `poll`)",
+      "(signal) LFO 1 at the left edge of the stereo field, 0..1", "(signal) LFO 1 at the right edge, 0..1",
+      "(signal) LFO 2 at the left edge, 0..1", "(signal) LFO 2 at the right edge, 0..1" };
     strncpy_zero(s, out_names[a], 256);
   }
 }
@@ -244,11 +250,20 @@ void beads_lfo(t_beads* x, t_symbol* s, long argc, t_atom* argv) {
   const char* what = atom_getsym(argv + 1)->s_name;
   const double v = argc >= 3 ? atom_getfloat(argv + 2) : 0.0;
   auto clampl = [](long a, long lo, long hi) { return a < lo ? lo : (a > hi ? hi : a); };
-  if (!strcmp(what, "shape")) l.shape = clampl((long)std::lround(v), 0, 6);
-  else if (!strcmp(what, "rate")) l.rate = (float)(v < 0 ? 0 : v);
+  auto clampd = [](double a, double lo, double hi) { return a < lo ? lo : (a > hi ? hi : a); };
+  if (!strcmp(what, "shape")) l.shape = clampl((long)std::lround(v), 0, 8);
+  else if (!strcmp(what, "rate")) l.rate = (float)clampd(v, 0, 40);
+  else if (!strcmp(what, "x10")) l.x10 = v != 0;
   else if (!strcmp(what, "sync")) l.sync = v != 0;
-  else if (!strcmp(what, "div")) l.div = clampl((long)std::lround(v), 0, 17);
+  else if (!strcmp(what, "div")) l.div = clampl((long)std::lround(v), 0, 23);
   else if (!strcmp(what, "split")) l.split_deg = (float)(v < 0 ? 0 : (v > 360 ? 360 : v));
+  else if (!strcmp(what, "wave")) l.wave = (float)clampd(v, -100, 100);
+  else if (!strcmp(what, "steps")) l.steps = clampl((long)std::lround(v), 0, 24);
+  else if (!strcmp(what, "jitter")) l.jitter = (float)clampd(v, 0, 100);
+  else if (!strcmp(what, "smooth")) l.smooth = (float)clampd(v, 0, 100);
+  else if (!strcmp(what, "offset")) l.offset = (float)clampd(v, -100, 100);
+  else if (!strcmp(what, "depth")) l.depth = (float)clampd(v, 0, 100);
+  else if (!strcmp(what, "hold")) l.hold = v != 0;
   else if (!strcmp(what, "uni"))                    // legacy: polarity of every cell of this LFO
     for (int d = 0; d < NUM_DESTS; ++d) x->params.uni[d][n - 1] = v != 0;
   else if (!strcmp(what, "reset")) l.reset += 1;    // any change restarts the cycle
@@ -358,6 +373,7 @@ void beads_perform64(t_beads* x, t_object* dsp64, double** ins, long numins,
   const long kChunk = 4096;
   float buf[NUM_INPUTS][kChunk];
   float out_l[kChunk], out_r[kChunk], out_trig[kChunk];
+  float out_lfo[kLfoSignals][kChunk];
   for (long base = 0; base < sampleframes; base += kChunk) {
     const long n = sampleframes - base < kChunk ? sampleframes - base : kChunk;
     const float* in[NUM_INPUTS];
@@ -371,13 +387,17 @@ void beads_perform64(t_beads* x, t_object* dsp64, double** ins, long numins,
     }
     Params p = x->params;
     p.tempo = x->tempo_attr > 0 ? (float)x->tempo_attr : (float)x->host_tempo->load();
+    float* lfo_ptr[kLfoSignals];
+    for (int k = 0; k < kLfoSignals; ++k) lfo_ptr[k] = (3 + k < numouts) ? out_lfo[k] : nullptr;
     x->engine->Process(p, in, out_l, out_r, (size_t)n,
-                       numouts > 2 ? out_trig : nullptr);
+                       numouts > 2 ? out_trig : nullptr, lfo_ptr);
     for (long k = 0; k < n; ++k) {
       outs[0][base + k] = out_l[k];
       outs[1][base + k] = out_r[k];
       if (numouts > 2) outs[2][base + k] = out_trig[k];
     }
+    for (int j = 0; j < kLfoSignals; ++j)
+      if (3 + j < numouts) for (long k = 0; k < n; ++k) outs[3 + j][base + k] = out_lfo[j][k];
   }
 
   if (x->engine->HasGrains() && x->clock_pending->exchange(1) == 0) {

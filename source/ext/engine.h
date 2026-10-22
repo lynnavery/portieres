@@ -14,16 +14,24 @@ enum Input {
   IN_SEED, IN_FREEZE, NUM_INPUTS
 };
 
-// One of the four built-in LFOs. They are sampled per grain (see
-// beads/dsp/grain_modulation.h) and mixed into the destinations by Params::mod.
+// One of the four built-in LFOs (the device uses the first two). It follows Ableton's Live 12 LFO:
+// see beads/dsp/grain_modulation.h. The LFO is sampled per grain, the matrix (Params::mod) mixes it in.
 struct LfoParams {
-  long shape = 0;         // 0 sine, 1 triangle, 2 saw up, 3 saw down, 4 square,
-                          // 5 random hold, 6 random smooth
-  float rate = 1.0f;      // Hz (when not synced)
+  long shape = 0;         // 0 sine, 1 up, 2 down, 3 triangle, 4 square, 5 random, 6 bin, 7 stray, 8 glider
+  float rate = 1.0f;      // Hz when free running (0..40)
+  long x10 = 0;           // 1 = rate x 10
   long sync = 0;          // 1 = follow the tempo using `div`
-  long div = 7;           // 0..17: 1/16T 1/16 1/16. ... 2/1T 2/1 2/1. (7 = 1/4)
+  long div = 9;           // 0..23: 1/64 1/48 1/32 1/24 1/16 1/12 1/8 1/6 3/16 1/4 5/16 1/3 3/8 1/2 3/4 1 1.5 2 3 4 6 8 16 32
+                          // (note values; 9 = 1/4 = one beat)
   float split_deg = 0.0f; // stereo split: how far apart (degrees of the cycle)
                           // the left and right edges of the stereo field sample the LFO
+  float wave = 0.0f;      // wave-shape curve, -100..100 (first five shapes only)
+  long steps = 0;         // 0 = off, 1..24 levels (not for square / random / bin)
+  float jitter = 0.0f;    // 0..100
+  float smooth = 0.0f;    // 0..100 (x2 = ms of slew)
+  float offset = 0.0f;    // -100..100, moves the centre of the output
+  float depth = 100.0f;   // 0..100
+  long hold = 0;          // 1 = freeze the output while set (momentary)
   long reset = 0;         // a counter: any change restarts the cycle
 };
 
@@ -33,6 +41,7 @@ enum ModDest {
   DEST_DENSITY, DEST_FEEDBACK, DEST_REVERB, DEST_DRYWET, NUM_DESTS
 };
 const int kNumLfos = 4;
+const int kLfoSignals = 4;
 
 struct Params {
   float time = 0.5f, time_amt = 0.0f;
@@ -85,8 +94,12 @@ class Engine {
   // in[] has NUM_INPUTS entries; unconnected inputs are nullptr.
   // out_trig (optional) gets a 1-sample impulse (1.0) per grain start, time
   // aligned with out_l/out_r and quantised to one codec block (~0.25 ms).
+  //
+  // out_lfo (optional) is an array of kLfoSignals pointers (any may be null): the LFOs as signals, 0..1,
+  // for LFO 1 left edge, LFO 1 right edge, LFO 2 left, LFO 2 right. They are what the LFO pages scroll.
   void Process(const Params& p, const float* const* in, float* out_l,
-               float* out_r, size_t n, float* out_trig = nullptr);
+               float* out_r, size_t n, float* out_trig = nullptr,
+               float* const* out_lfo = nullptr);
 
   // Drains grain events (any thread; single consumer). Returns the count.
   size_t PopGrains(GrainEvent* out, size_t max);

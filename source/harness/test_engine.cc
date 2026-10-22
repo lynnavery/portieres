@@ -136,28 +136,151 @@ int TestModulation() {
   // The LFO shapes themselves (pure maths).
   {
     beads::GrainModulation g;
-    g.shape[0] = beads::LFO_SINE; g.cycles[0] = 0.25;
-    f += Check(std::fabs(g.Lfo(0, 0.0) - 1.0f) < 1e-5, "sine peaks at a quarter cycle", g.Lfo(0, 0.0));
+    g.shape[0] = beads::LFO_SINE; g.cycles[0] = 0.0;
+    f += Check(std::fabs(g.Lfo(0, 0.0) - 1.0f) < 1e-5 && std::fabs(g.Lfo(0, 0.5)) < 1e-5, "sine starts at the top (0..1) and reaches the bottom at half a cycle", g.Lfo(0, 0.0), g.Lfo(0, 0.5));
     g.depth[beads::MOD_PITCH][0] = 1.0f;
     f += Check(std::fabs(g.Offset(beads::MOD_PITCH, 0.0f) - 24.0f) < 1e-3, "+100% on pitch: the LFO peak is +24 st (half of the 48 st range) above the knob", g.Offset(beads::MOD_PITCH, 0.0f));
     f += Check(g.GrainDelta(beads::MOD_PITCH, 1.0f) == 0.0f, "split 0: a grain differs from the centre by exactly 0");
     g.split[0] = 0.5f;   // 180 degrees
-    g.cycles[0] = 0.0;
-    f += Check(std::fabs(g.GrainDelta(beads::MOD_PITCH, 1.0f) - 24.0f * std::sin(6.2831853f * 0.25f)) < 1e-3, "split 180deg: hard right sees +90deg, hard left -90deg", g.GrainDelta(beads::MOD_PITCH, 1.0f));
+    g.cycles[0] = 0.25;  // the centre is half way down, the right edge (+90deg) at the bottom, the left (-90deg) at the top
+    f += Check(std::fabs(g.GrainDelta(beads::MOD_PITCH, 1.0f) + 24.0f) < 1e-3 && std::fabs(g.GrainDelta(beads::MOD_PITCH, -1.0f) - 24.0f) < 1e-3, "split 180deg: hard right sees +90deg, hard left -90deg", g.GrainDelta(beads::MOD_PITCH, 1.0f), g.GrainDelta(beads::MOD_PITCH, -1.0f));
     f += Check(std::fabs(g.GrainDelta(beads::MOD_PITCH, -1.0f) + g.GrainDelta(beads::MOD_PITCH, 1.0f)) < 1e-3, "left and right deltas are mirror images");
-    g.shape[0] = beads::LFO_RANDOM_HOLD; g.split[0] = 0.0f;
-    f += Check(g.Lfo(0, 0.0) == g.Lfo(0, 0.4), "random hold is constant within a cycle");
-    f += Check(g.Lfo(0, 0.0) != g.Lfo(0, 1.0), "random hold changes between cycles");
+    g.shape[0] = beads::LFO_RANDOM; g.split[0] = 0.0f;
+    f += Check(g.Lfo(0, 0.0) == g.Lfo(0, 0.4), "random is constant within a cycle");
+    f += Check(g.Lfo(0, 0.0) != g.Lfo(0, 1.0), "random changes between cycles");
   }
 
-  // 0. The knob is the centre; the amount is how far the LFO travels in knob turns (the whole range x amount),
-  //    clipped at the ends of the range by the engine. A negative amount flips the LFO.
+  // 0a. The nine shapes, the curve, steps and the output scaling follow the Live LFO device.
+  {
+    beads::GrainModulation g;
+    auto at = [&](int shape, double x) { g.shape[0] = shape; g.cycles[0] = x; return g.Lfo(0, 0.0); };
+    f += Check(std::fabs(at(beads::LFO_UP, 0.25) - 0.25f) < 1e-6 && std::fabs(at(beads::LFO_DOWN, 0.25) - 0.75f) < 1e-6, "up and down are ramps", at(beads::LFO_UP, 0.25), at(beads::LFO_DOWN, 0.25));
+    f += Check(std::fabs(at(beads::LFO_TRIANGLE, 0.25) - 0.5f) < 1e-6 && std::fabs(at(beads::LFO_TRIANGLE, 0.5) - 1.0f) < 1e-6 && std::fabs(at(beads::LFO_TRIANGLE, 0.75) - 0.5f) < 1e-6, "triangle rises to the top at half a cycle", at(beads::LFO_TRIANGLE, 0.25), at(beads::LFO_TRIANGLE, 0.75));
+    f += Check(at(beads::LFO_SQUARE, 0.25) == 0.0f && at(beads::LFO_SQUARE, 0.75) == 1.0f, "square is low first, then high", at(beads::LFO_SQUARE, 0.25), at(beads::LFO_SQUARE, 0.75));
+    bool bin_ok = true, stray_ok = true, glide_ok = true, rnd_ok = true;
+    for (int c = 0; c < 200; ++c) {
+      const double x = c + 0.37;
+      const float b = at(beads::LFO_BIN, x), r = at(beads::LFO_RANDOM, x), st = at(beads::LFO_STRAY, x), gl = at(beads::LFO_GLIDER, x);
+      bin_ok &= (b == 0.0f || b == 1.0f);
+      rnd_ok &= r >= 0.0f && r <= 1.0f;
+      stray_ok &= st >= 0.0f && st <= 1.0f && std::isfinite(st);
+      glide_ok &= gl >= 0.0f && gl <= 1.0f;
+    }
+    f += Check(bin_ok && rnd_ok && stray_ok && glide_ok, "bin is 0/1; random, stray and glider stay inside 0..1");
+    // glider is continuous across cycle boundaries (it glides between the random values)
+    f += Check(std::fabs(at(beads::LFO_GLIDER, 5.0 - 1e-5) - at(beads::LFO_GLIDER, 5.0 + 1e-5)) < 1e-3, "glider has no jump at a cycle boundary", at(beads::LFO_GLIDER, 5.0 - 1e-5), at(beads::LFO_GLIDER, 5.0 + 1e-5));
+    // wave-shape curve: bends the wave, exponent 1/(1-0.0095*amount)
+    g.shape[0] = beads::LFO_UP; g.cycles[0] = 0.5; g.wave[0] = 1.0f;
+    f += Check(std::fabs(g.Lfo(0, 0.0) - std::pow(0.5f, 1.0f / (1.0f - 0.95f))) < 1e-5, "wave +100%: x^20 on the way up", g.Lfo(0, 0.0));
+    g.wave[0] = -1.0f;
+    f += Check(std::fabs(g.Lfo(0, 0.0) - (1.0f - std::pow(0.5f, 20.0f))) < 1e-5, "wave -100%: mirrored", g.Lfo(0, 0.0));
+    g.shape[0] = beads::LFO_RANDOM; const float rnd_flat = g.Lfo(0, 0.0); g.wave[0] = 0.0f;
+    f += Check(rnd_flat == g.Lfo(0, 0.0), "the curve does not apply to random");
+    // steps: 4 levels, not for square
+    g.shape[0] = beads::LFO_UP; g.wave[0] = 0.0f; g.steps[0] = 4;
+    bool levels = true;
+    for (int k = 0; k <= 100; ++k) { g.cycles[0] = k / 101.0; const float v = g.Lfo(0, 0.0), q = std::floor(v * 4.0f + 0.5f) / 4.0f; levels &= std::fabs(v - q) < 1e-5; }
+    f += Check(levels, "steps 4: the ramp only takes the values 0, .25, .5, .75, 1");
+    g.shape[0] = beads::LFO_SQUARE; g.cycles[0] = 0.75;
+    f += Check(g.Lfo(0, 0.0) == 1.0f, "steps do not touch the square");
+    // output scaling: offset + depth * (value - 0.5), clipped
+    g.steps[0] = 0; g.shape[0] = beads::LFO_UP; g.cycles[0] = 1.0 - 1e-9;      // the top of the ramp, value 1
+    g.depth01[0] = 0.5f; g.offset01[0] = 0.5f;
+    f += Check(std::fabs(g.Lfo(0, 0.0) - 0.75f) < 1e-4, "depth 50% around the middle: the top of the ramp is 0.75", g.Lfo(0, 0.0));
+    g.offset01[0] = 0.9f;
+    f += Check(std::fabs(g.Lfo(0, 0.0) - 1.0f) < 1e-6, "offset +80% pushes the top past 1: clipped", g.Lfo(0, 0.0));
+    g.depth01[0] = 0.0f; g.offset01[0] = 0.3f;
+    f += Check(std::fabs(g.Lfo(0, 0.0) - 0.3f) < 1e-6, "depth 0: the output is the offset", g.Lfo(0, 0.0));
+    // hold returns the held value to every read, whatever the phase
+    g.depth01[0] = 1.0f; g.offset01[0] = 0.5f; g.holding[0] = 1; g.held[0] = 0.8f;
+    f += Check(std::fabs(g.Lfo(0, 0.0) - 0.8f) < 1e-6 && std::fabs(g.Lfo(0, 0.3) - 0.8f) < 1e-6, "hold: every read returns the held value", g.Lfo(0, 0.0), g.Lfo(0, 0.3));
+  }
+
+  // 0b0. Time-domain parts and the signal outputs, through the engine.
+  {
+    auto series = [&](Params q, int blocks, float* mn, float* mx, float* max_step, float* out_sig_min, float* out_sig_max) {
+      Engine e; e.Setup(48000, 64, 3, false);
+      stmlib::Random::Seed(3);
+      std::vector<float> oL(64), oR(64), sig_l(64), sig_r(64), s3(64), s4(64);
+      const float* in[NUM_INPUTS] = { 0,0,0,0,0,0,0,0,0 };
+      float* sigs[kLfoSignals] = { sig_l.data(), sig_r.data(), s3.data(), s4.data() };
+      float prev = -1, lo = 9, hi = -9, step = 0, slo = 9, shi = -9;
+      for (int n = 0; n < blocks; ++n) {
+        e.Process(q, in, oL.data(), oR.data(), 64, nullptr, sigs);
+        float vl, vr, ph; e.GetLfo(0, &vl, &vr, &ph);
+        if (n > 20) {                      // after the pipeline has settled
+          lo = std::min(lo, vl); hi = std::max(hi, vl);
+          if (prev >= 0) step = std::max(step, std::fabs(vl - prev));
+          prev = vl;
+          for (int k = 0; k < 64; ++k) { slo = std::min(slo, sig_l[k]); shi = std::max(shi, sig_l[k]); }
+        }
+      }
+      *mn = lo; *mx = hi; *max_step = step; *out_sig_min = slo; *out_sig_max = shi;
+    };
+    float lo, hi, st, slo, shi;
+    Params q; q.lfo[0].shape = 4; q.lfo[0].rate = 3.0f;                     // square, 3 Hz
+    series(q, 2000, &lo, &hi, &st, &slo, &shi);
+    f += Check(lo < 0.01f && hi > 0.99f && st > 0.9f, "square LFO: the output jumps from 0 to 1", lo, hi);
+    f += Check(slo < 0.01f && shi > 0.99f, "the LFO signal outlet carries the same 0..1 wave (min, max)", slo, shi);
+    q.lfo[0].smooth = 100.0f;                                              // 200 ms slew
+    series(q, 2000, &lo, &hi, &st, &slo, &shi);
+    f += Check(st < 0.1f && hi - lo > 0.3f, "smooth 100: the jump becomes a glide (largest step per call < 0.1)", st, hi - lo);
+    Params j; j.lfo[0].shape = 1; j.lfo[0].rate = 0.0f; j.lfo[0].offset = 0.0f;      // frozen ramp at phase 0 (value 0)
+    series(j, 1000, &lo, &hi, &st, &slo, &shi);
+    f += Check(hi - lo < 1e-5f, "no jitter: a stopped LFO is perfectly still", hi - lo);
+    j.lfo[0].jitter = 100.0f;
+    series(j, 4000, &lo, &hi, &st, &slo, &shi);
+    f += Check(hi - lo > 0.15f && lo >= 0.0f && hi <= 1.0f, "jitter 100: a stopped LFO wobbles randomly (range)", lo, hi);
+    // hold freezes, release resumes
+    {
+      Engine e; e.Setup(48000, 64, 3, false);
+      std::vector<float> oL(64), oR(64);
+      const float* in[NUM_INPUTS] = { 0,0,0,0,0,0,0,0,0 };
+      Params h; h.lfo[0].shape = 1; h.lfo[0].rate = 0.7f;                  // ramp
+      float vl, vr, ph, v0, v1;
+      for (int n = 0; n < 200; ++n) e.Process(h, in, oL.data(), oR.data(), 64);
+      h.lfo[0].hold = 1;
+      for (int n = 0; n < 4; ++n) e.Process(h, in, oL.data(), oR.data(), 64);
+      e.GetLfo(0, &v0, &vr, &ph);
+      for (int n = 0; n < 400; ++n) e.Process(h, in, oL.data(), oR.data(), 64);
+      e.GetLfo(0, &v1, &vr, &ph);
+      f += Check(std::fabs(v1 - v0) < 1e-6f, "hold: the output stays put while held", v0, v1);
+      h.lfo[0].hold = 0;
+      for (int n = 0; n < 400; ++n) e.Process(h, in, oL.data(), oR.data(), 64);
+      e.GetLfo(0, &vl, &vr, &ph);
+      f += Check(std::fabs(vl - v1) > 0.05f, "release: the LFO carries on", v1, vl);
+    }
+    // x10 and the sync table
+    {
+      Params x; x.lfo[0].rate = 2.0f; x.lfo[0].x10 = 1;
+      Run r = Go(x, 0.5, 0.3);
+      f += Check(std::fabs(r.lfo_hz[0] - 20.0f) < 1e-3f, "x10: 2 Hz becomes 20 Hz", r.lfo_hz[0]);
+      Params y; y.tempo = 120.0f; y.lfo[0].sync = 1; y.lfo[0].div = 15; y.lfo[1].sync = 1; y.lfo[1].div = 0; y.lfo[2].sync = 1; y.lfo[2].div = 23;
+      Run ry = Go(y, 0.5, 0.3);
+      f += Check(std::fabs(ry.lfo_hz[0] - 0.5f) < 1e-4f && std::fabs(ry.lfo_hz[1] - 32.0f) < 1e-3f && std::fabs(ry.lfo_hz[2] - 2.0f / 32.0f / 4.0f) < 1e-4f,
+                 "sync at 120 BPM: '1' = 0.5 Hz, '1/64' = 32 Hz, '32' = 1/64 Hz", ry.lfo_hz[0], ry.lfo_hz[1]);
+    }
+    // split: the left and right signals differ; without it they are the same
+    {
+      Engine e; e.Setup(48000, 64, 3, false);
+      std::vector<float> oL(64), oR(64), a(64), b(64), c(64), d(64);
+      const float* in[NUM_INPUTS] = { 0,0,0,0,0,0,0,0,0 };
+      float* sigs[kLfoSignals] = { a.data(), b.data(), c.data(), d.data() };
+      Params q2; q2.lfo[0].rate = 1.0f; q2.lfo[0].split_deg = 120.0f;
+      double diff = 0;
+      for (int n = 0; n < 800; ++n) { e.Process(q2, in, oL.data(), oR.data(), 64, nullptr, sigs); if (n > 100) for (int k = 0; k < 64; ++k) diff += std::fabs(a[k] - b[k]); }
+      f += Check(diff / (700.0 * 64.0) > 0.05, "with a split the left and right LFO signals differ", diff / (700.0 * 64.0));
+    }
+  }
+
+  // 0b1. The knob is the centre; the amount is how far the LFO travels (the whole range x amount),
+  //      clipped at the ends of the range by the engine. A negative amount flips the LFO.
   {
     auto swing = [](int dest, float depth, bool uni, float* at_peak, float* at_trough) {
       beads::GrainModulation g;
       g.shape[0] = beads::LFO_SINE; g.unipolar[dest][0] = uni; g.depth[dest][0] = depth;
-      g.cycles[0] = 0.25; *at_peak = g.Offset(dest, 0.0f);     // sine peak
-      g.cycles[0] = 0.75; *at_trough = g.Offset(dest, 0.0f);   // sine trough
+      g.cycles[0] = 0.0; *at_peak = g.Offset(dest, 0.0f);     // sine peak
+      g.cycles[0] = 0.5; *at_trough = g.Offset(dest, 0.0f);   // sine trough
     };
     float pk, tr;
     swing(beads::MOD_REVERB, 1.0f, false, &pk, &tr);
@@ -176,12 +299,12 @@ int TestModulation() {
     beads::GrainModulation g;
     g.shape[0] = beads::LFO_SINE; g.depth[beads::MOD_REVERB][0] = 1.0f; g.depth[beads::MOD_FEEDBACK][0] = 1.0f;
     g.unipolar[beads::MOD_FEEDBACK][0] = 1;                       // reverb stays +/-, feedback is + only
-    g.cycles[0] = 0.25; const float rv_pk = g.Offset(beads::MOD_REVERB, 0.0f), fb_pk = g.Offset(beads::MOD_FEEDBACK, 0.0f);
-    g.cycles[0] = 0.75; const float rv_tr = g.Offset(beads::MOD_REVERB, 0.0f), fb_tr = g.Offset(beads::MOD_FEEDBACK, 0.0f);
+    g.cycles[0] = 0.0; const float rv_pk = g.Offset(beads::MOD_REVERB, 0.0f), fb_pk = g.Offset(beads::MOD_FEEDBACK, 0.0f);
+    g.cycles[0] = 0.5; const float rv_tr = g.Offset(beads::MOD_REVERB, 0.0f), fb_tr = g.Offset(beads::MOD_FEEDBACK, 0.0f);
     f += Check(std::fabs(rv_pk - 0.5f) < 1e-5 && std::fabs(rv_tr + 0.5f) < 1e-5, "same LFO, cell A bipolar: swings -0.5..+0.5", rv_pk, rv_tr);
     f += Check(std::fabs(fb_pk - 1.0f) < 1e-5 && std::fabs(fb_tr) < 1e-5, "same LFO, cell B unipolar: swings 0..+1", fb_pk, fb_tr);
     g.unipolar[beads::MOD_FEEDBACK][0] = 1; g.depth[beads::MOD_FEEDBACK][0] = -1.0f;
-    g.cycles[0] = 0.25; const float neg_pk = g.Offset(beads::MOD_FEEDBACK, 0.0f);
+    g.cycles[0] = 0.0; const float neg_pk = g.Offset(beads::MOD_FEEDBACK, 0.0f);
     f += Check(std::fabs(neg_pk + 1.0f) < 1e-5, "unipolar with a negative amount goes down instead", neg_pk);
     f += Check(std::fabs(g.Lfo(0, 0.0) - 1.0f) < 1e-5 && std::fabs(g.Lfo(0, 0.5)) < 1e-5,
                "the LFO value itself (and the display readout) is 0..1: 1 at the sine peak, 0 at the trough", g.Lfo(0, 0.0), g.Lfo(0, 0.5));
@@ -295,30 +418,32 @@ int TestModulation() {
     Params p = base;
     p.spread = 1.0f; p.lfo[0].rate = 0.02f; p.mod[DEST_PITCH][0] = 100.0f;   // slow LFO: the same cycle for the whole run
     Params q = p; q.lfo[0].split_deg = 180.0f;
-    Run r0 = Go(p, 5.0), r1 = Go(q, 5.0);
+    // The cosine starts at its peak, so sample the slow LFO a quarter cycle in (11.5 s .. 13.5 s at 0.02 Hz): the slope is steady there.
+    auto Mid = [&](Params x) { return Go(x, 13.5, 11.5); };
+    Run r0 = Mid(p), r1 = Mid(q);
     auto pans = [](const Run& r) { std::vector<double> v; for (auto& g : r.grains) v.push_back(g.pan); return v; };
     auto semis = [](const Run& r) { std::vector<double> v; for (auto& g : r.grains) v.push_back(Semis(g)); return v; };
     const double c0 = Corr(pans(r0), semis(r0)), c1 = Corr(pans(r1), semis(r1));
     f += Check(std::fabs(c0) < 0.3, "split 0: pan and pitch are unrelated", c0);
-    f += Check(c1 > 0.8, "split 180deg: pitch follows pan across the stereo field", c1);
+    f += Check(std::fabs(c1) > 0.8, "split 180deg: pitch follows pan across the stereo field", c1);
     Params w = q; w.lfo[0].split_deg = 0.0f; w.spread = 0.0f;
-    Run rw = Go(w, 5.0);
+    Run rw = Mid(w);
     std::vector<double> idx; for (size_t i = 0; i < rw.grains.size(); ++i) idx.push_back(double(i));
-    f += Check(rw.grains.size() > 20 && Corr(idx, semis(rw)) > 0.95,
+    f += Check(rw.grains.size() > 20 && std::fabs(Corr(idx, semis(rw))) > 0.95,
                "split 0, spread 0: pitch follows time only (all grains move together)", Corr(idx, semis(rw)));
 
     // Phase ALONE (Spread 0) must create the stereo split: grains spread across the field and the
     // left/right edges hear opposite phases.
     Params s = p; s.spread = 0.0f; s.lfo[0].split_deg = 180.0f;
-    Run rs = Go(s, 5.0);
-    f += Check(Corr(pans(rs), semis(rs)) > 0.8, "Spread 0, split 180deg: pitch still follows pan (Phase alone splits)", Corr(pans(rs), semis(rs)));
+    Run rs = Mid(s);
+    f += Check(std::fabs(Corr(pans(rs), semis(rs))) > 0.8, "Spread 0, split 180deg: pitch still follows pan (Phase alone splits)", Corr(pans(rs), semis(rs)));
     f += Check(Std(pans(rs)) > 0.25, "Spread 0, split 180deg: grains spread across the stereo field", Std(pans(rs)));
     // Half the split, half the width; and the extremes still hear the full +/- split/2.
     Params h = s; h.lfo[0].split_deg = 90.0f;
-    Run rh = Go(h, 5.0);
+    Run rh = Mid(h);
     f += Check(Std(pans(rh)) > 0.1 && Std(pans(rh)) < Std(pans(rs)), "split 90deg: narrower field than 180deg", Std(pans(rh)), Std(pans(rs)));
     // (a narrower field lets Beads' own random pan jitter matter more, so the bar is lower)
-    f += Check(Corr(pans(rh), semis(rh)) > 0.6, "split 90deg: pitch still follows pan", Corr(pans(rh), semis(rh)));
+    f += Check(std::fabs(Corr(pans(rh), semis(rh))) > 0.6, "split 90deg: pitch still follows pan", Corr(pans(rh), semis(rh)));
     // An LFO that feeds nothing per grain does not move the grains, whatever its split.
     // (Reverb: unlike density or size it does not change trigger regularity or grain overlap,
     //  which would change Beads' own pan width.)
@@ -355,7 +480,7 @@ int TestModulation() {
 
     stmlib::Random::Seed(1);
     Engine e; e.Setup(48000, 64, 3, false);
-    Params q = base; q.lfo[0].rate = 0.5f; q.lfo[0].split_deg = 90.0f;
+    Params q = base; q.lfo[0].rate = 0.4f; q.lfo[0].split_deg = 90.0f;     // (not 0.5 Hz: after 1 s that sits on the cosine's symmetric trough)
     std::vector<float> oL(64), oR(64); const float* in[NUM_INPUTS] = { 0,0,0,0,0,0,0,0,0 };
     for (int n = 0; n < 48000; n += 64) e.Process(q, in, oL.data(), oR.data(), 64);
     float vl, vr, ph; e.GetLfo(0, &vl, &vr, &ph);
@@ -379,16 +504,16 @@ int TestModulation() {
     // the speed the display scales its waveform by: the knob in Hz mode, the tempo-derived rate when synced
     {
       Params h = base; h.lfo[0].rate = 2.5f; h.lfo[1].rate = 7.0f;
-      h.lfo[2].sync = 1; h.lfo[2].div = 7; h.lfo[3].sync = 1; h.lfo[3].div = 13; h.tempo = 90.0f;
+      h.lfo[2].sync = 1; h.lfo[2].div = 9; h.lfo[3].sync = 1; h.lfo[3].div = 15; h.tempo = 90.0f;
       Run rh = Go(h, 1.0, 0.5);
       f += Check(std::fabs(rh.lfo_hz[0] - 2.5f) < 1e-4f && std::fabs(rh.lfo_hz[1] - 7.0f) < 1e-4f,
                  "reported speed follows the Rate knob in Hz mode (2.5 and 7 Hz)", rh.lfo_hz[0], rh.lfo_hz[1]);
       f += Check(std::fabs(rh.lfo_hz[2] - 1.5f) < 1e-4f && std::fabs(rh.lfo_hz[3] - 0.375f) < 1e-4f,
                  "reported speed when synced at 90 BPM: 1/4 = 1.5 Hz, 1/1 = 0.375 Hz", rh.lfo_hz[2], rh.lfo_hz[3]);
     }
-    f += Check(wraps(7) == 4, "synced 1/4 at 120 BPM: 4 cycles in 2 s", wraps(7));
-    f += Check(wraps(13) == 1, "synced 1/1 at 120 BPM: 1 cycle in 2 s", wraps(13));
-    f += Check(wraps(4) == 8, "synced 1/8 at 120 BPM: 8 cycles in 2 s", wraps(4));
+    f += Check(wraps(9) == 4, "synced 1/4 at 120 BPM: 4 cycles in 2 s", wraps(9));
+    f += Check(wraps(15) == 1, "synced 1/1 at 120 BPM: 1 cycle in 2 s", wraps(15));
+    f += Check(wraps(6) == 8, "synced 1/8 at 120 BPM: 8 cycles in 2 s", wraps(6));
   }
   return f;
 }

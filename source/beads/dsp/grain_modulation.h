@@ -14,6 +14,13 @@
 // the right split/2 cycles later, so grains panned apart see different LFO
 // phases. With split = 0 GrainDelta is exactly 0.
 //
+// The LFO follows Ableton's Live 12 LFO device: nine shapes (Sine, Up, Down, Triangle, Square,
+// Random, Bin, Stray, Glider), a wave-shape curve, steps, jitter, smooth, momentary hold, and
+// output = offset + depth * (value - 0.5), all in 0..1. Everything that depends only on the phase
+// (shape, curve, steps) is a pure function of it, so a grain can read the LFO at its own stereo
+// offset; the time-domain parts (jitter, smooth) are computed once per block by the host and come in
+// as `post`, added to every read, and a held LFO returns its held value to every grain.
+//
 // The random shapes use a private deterministic hash (not stmlib::Random), so
 // they never disturb Beads' own random sequence.
 
@@ -34,8 +41,8 @@ enum ModDestination {
 };
 
 enum LfoShape {
-  LFO_SINE, LFO_TRIANGLE, LFO_SAW_UP, LFO_SAW_DOWN, LFO_SQUARE,
-  LFO_RANDOM_HOLD, LFO_RANDOM_SMOOTH, LFO_NUM_SHAPES
+  LFO_SINE, LFO_UP, LFO_DOWN, LFO_TRIANGLE, LFO_SQUARE,
+  LFO_RANDOM, LFO_BIN, LFO_STRAY, LFO_GLIDER, LFO_NUM_SHAPES
 };
 
 // The range of each destination (pitch in semitones, everything else 0..1).
@@ -52,10 +59,31 @@ inline float ModHash(uint32_t seed, int64_t cycle) {
   return float(x >> 8) * (2.0f / 16777216.0f) - 1.0f;
 }
 
+// Blackman window, the "wavelet" of the Stray shape (the example uses an 8192-sample buffer).
+inline float ModBlackman(float x) {
+  return 0.42f - 0.5f * std::cos(6.2831853f * x) + 0.08f * std::cos(12.5663706f * x);
+}
+
+// The example's exponent curve: amount -1..1 (x0.95 at the extremes) bends the 0..1 wave.
+inline float ModCurve(float x, float amount) {
+  if (amount == 0.0f) return x;
+  const float a = std::fabs(amount) * 0.0095f * 100.0f;     // amount is the dial / 100, the device scales by 0.0095 per percent
+  const float k = 1.0f / (1.0f - a);
+  if (amount > 0.0f) return x <= 0.0f ? 0.0f : std::exp(std::log(x) * k);
+  return x >= 1.0f ? 1.0f : 1.0f - std::exp(std::log(1.0f - x) * k);
+}
+
 struct GrainModulation {
   double cycles[kModLfos];     // phase accumulator in cycles (integer part = cycle number)
   float split[kModLfos];       // stereo split in cycles (phase knob / 360)
   uint8_t shape[kModLfos];
+  float wave[kModLfos];        // wave-shape curve, -1..1 (the dial / 100); only for the first five shapes
+  uint8_t steps[kModLfos];     // 0 = off, 1..24 levels (not for Square / Random / Bin)
+  float offset01[kModLfos];    // centre of the output, 0..1 (0.5 = the dial at 0)
+  float depth01[kModLfos];     // 0..1
+  float post[kModLfos];        // jitter + smoothing, added to the pure value (set per block by the host)
+  uint8_t holding[kModLfos];   // 1 = output frozen at held[]
+  float held[kModLfos];        // the held value, before offset / depth scaling
   uint8_t unipolar[MOD_NUM_DESTINATIONS][kModLfos];   // per matrix cell: 1 = LFO runs 0..1, 0 = -1..1 (default)
   uint32_t seed[kModLfos];
   float depth[MOD_NUM_DESTINATIONS][kModLfos];   // -1..1 (matrix percent / 100)
@@ -63,33 +91,67 @@ struct GrainModulation {
 
   GrainModulation() {
     for (int i = 0; i < kModLfos; ++i) {
-      cycles[i] = 0.0; split[i] = 0.0f; shape[i] = 0;
+      cycles[i] = 0.0; split[i] = 0.0f; shape[i] = 0; wave[i] = 0.0f; steps[i] = 0;
+      offset01[i] = 0.5f; depth01[i] = 1.0f; post[i] = 0.0f; holding[i] = 0; held[i] = 0.5f;
       seed[i] = 0x1234567u * uint32_t(i + 1);
       for (int d = 0; d < MOD_NUM_DESTINATIONS; ++d) { depth[d][i] = 0.0f; unipolar[d][i] = 0; }
     }
     for (int d = 0; d < MOD_NUM_DESTINATIONS; ++d) base[d] = ModDefaultBase(d);
   }
 
-  // LFO i evaluated `offset` cycles away from its current phase.
-  inline float Lfo(int i, double offset) const {
-    const double x = cycles[i] + offset;
+  // The raw shape at phase x (in cycles), 0..1, before curve and steps. Pure function of x.
+  inline float RawShape(int i, double x) const {
     const double fl = std::floor(x);
     const float f = float(x - fl);
     const int64_t c = int64_t(fl);
-    float v;
     switch (shape[i]) {
-      case LFO_SINE:     v = std::sin(f * 6.2831853f); break;
-      case LFO_TRIANGLE: v = 1.0f - 4.0f * std::fabs(f - 0.5f); break;
-      case LFO_SAW_UP:   v = f * 2.0f - 1.0f; break;
-      case LFO_SAW_DOWN: v = 1.0f - f * 2.0f; break;
-      case LFO_SQUARE:   v = f < 0.5f ? 1.0f : -1.0f; break;
-      case LFO_RANDOM_HOLD: v = ModHash(seed[i], c); break;
-      default: {
-        const float a = ModHash(seed[i], c), b = ModHash(seed[i], c + 1);
-        v = a + (b - a) * f * f * (3.0f - 2.0f * f);
+      case LFO_SINE:     return (std::cos(f * 6.2831853f) + 1.0f) * 0.5f;     // starts at the top, like the device
+      case LFO_UP:       return f;
+      case LFO_DOWN:     return 1.0f - f;
+      case LFO_TRIANGLE: { const float t = 2.0f * f; return t <= 1.0f ? t : 2.0f - t; }
+      case LFO_SQUARE:   return f > 0.5f ? 1.0f : 0.0f;
+      case LFO_RANDOM:   return (ModHash(seed[i], c) + 1.0f) * 0.5f;
+      case LFO_BIN:      return ModHash(seed[i], c) > 0.0f ? 1.0f : 0.0f;
+      case LFO_STRAY: {
+        // Two blackman-windowed noise bursts half a cycle apart, each with a fresh random gain every cycle.
+        const float next = f, curr = f < 0.5f ? f + 0.5f : f - 0.5f;
+        const int64_t cc = int64_t(std::floor(x + 0.5));
+        const float a_next = ModHash(seed[i], c) * 4.0f;
+        const float a_curr = ModHash(seed[i] ^ 0xA5A5A5A5u, cc) * 4.0f;
+        const float y_next = ModBlackman(next) * a_next * (next * 2.0f - 1.0f);
+        const float y_curr = ModBlackman(curr) * a_curr * (curr * 2.0f - 1.0f);
+        return 0.5f + 0.5f * std::sin((y_curr + y_next) * 0.5f * 2.3f);
+      }
+      default: {         // LFO_GLIDER: glides between this cycle's random value and the previous one
+        const float a = std::fabs(ModHash(seed[i], c)), b = std::fabs(ModHash(seed[i], c - 1));
+        const float drive = 0.5f + 0.5f * std::sin(f * 3.14159265f - 1.57079633f);
+        return drive * a + (1.0f - drive) * b;
       }
     }
-    return 0.5f * v + 0.5f;      // the LFO itself is always 0..1; a matrix cell decides how it is applied (Offset)
+  }
+
+  // Shape, wave-shape curve and steps at phase x: what is left once the time-domain parts are taken out.
+  inline float Shape(int i, double x) const {
+    float v = RawShape(i, x);
+    const int sh = shape[i];
+    if (sh <= LFO_SQUARE && wave[i] != 0.0f) v = ModCurve(v, wave[i]);
+    if (steps[i] > 0 && sh != LFO_SQUARE && sh != LFO_RANDOM && sh != LFO_BIN) {
+      const float n = float(steps[i]);
+      v = std::floor(v * n + 0.5f) / n;
+    }
+    return v;
+  }
+
+  // Output scaling shared by every read: offset + depth * (value - 0.5), clipped to 0..1.
+  inline float Scale(int i, float v) const {
+    const float o = offset01[i] + depth01[i] * (v - 0.5f);
+    return o < 0.0f ? 0.0f : (o > 1.0f ? 1.0f : o);
+  }
+
+  // LFO i evaluated `offset` cycles away from its current phase: 0..1.
+  inline float Lfo(int i, double offset) const {
+    if (holding[i]) return Scale(i, held[i]);
+    return Scale(i, Shape(i, cycles[i] + offset) + post[i]);
   }
 
   // Modulation of `dest` (in the destination's own units) at stereo position u.

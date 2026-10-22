@@ -7,21 +7,35 @@ Max 9 external port of the Mutable Instruments **Beads** granular processor. DSP
 See Max Helper object
 
 ## Outlets
-`portieres~` has five outlets: **L**, **R / gate**, **grain trigger** (signal), **grain messages** and **LFO values** (see below).
+`portieres~` has nine outlets: **L**, **R / gate**, **grain trigger** (signal), **grain messages**, **LFO values** (messages) and four
+**LFO signals** (see below).
 - *Grain trigger*: a 1-sample impulse (1.0) each time a grain starts. It is quantised to one codec block (about 0.25 ms) and
   lines up with the audio output; the impulse marks the trigger, and the audible grain follows 0 to 3 ms later depending on the media.
-- *Grain messages* (rightmost outlet): one `grain` message per grain, sent from the scheduler thread (so it is not sample accurate):
+- *Grain messages* (fourth outlet): one `grain` message per grain, sent from the scheduler thread (so it is not sample accurate):
   `grain <time> <pitch st> <dur ms> <shape> <amp> <pan> <reverse>`
   where time is the read position 0..1, pitch is in semitones (always the magnitude, see reverse), shape 0..1, pan 0..1 (0.5 centre) and reverse is 0/1.
 - Only granular mode produces grains. In delay mode (size > 0.99) and in the density dead zone there are none.
 - Grains are generated while the **seed** gate is held, the seed button is on or locked (`seed 2`), or a seed signal is patched; with no seed there are no triggers.
 
 ## LFOs, stereo split and spread (port addition)
-Four LFOs run inside the external and are **sampled once per grain**, so grains born at the same moment can see different
-LFO values (like the attenuverters' random spread, but shaped by an LFO).
-- `lfo <1-4> <param> [value]` with `param` one of `shape` (0 sine, 1 triangle, 2 saw up, 3 saw down, 4 square, 5 random hold,
-  6 random smooth), `rate` (Hz), `sync` (0/1), `div` (0-17: 1/16T 1/16 1/16. ... 2/1T 2/1 2/1., 7 = 1/4), `split` (degrees),
-  and `reset` (restarts the cycle). `uni <0|1>` is the old per-LFO polarity switch; it now just sets the polarity of every cell of that LFO.
+Four LFOs run inside the external (the device uses two) and are **sampled once per grain**, so grains born at the same moment can
+see different LFO values (like the attenuverters' random spread, but shaped by an LFO). They follow Ableton's Live 12 LFO device:
+shape, wave shape, steps, jitter, smooth, hold, depth and offset, a Free (Hz, x10) or Sync (note value) rate, all in 0..1.
+- `lfo <1-4> <param> [value]` with `param` one of
+  - `shape` 0 sine (starts at the top), 1 up, 2 down, 3 triangle, 4 square (low first), 5 random (new value each cycle), 6 bin (random 0/1),
+    7 stray (two noise bursts under a Blackman window), 8 glider (glides between random values);
+  - `wave` -100..100, the wave-shape curve (an exponent up to 1/0.05, mirrored for negative values; sine, up, down, triangle and square only);
+  - `steps` 0 = off, 1..24 levels (not for square, random and bin);
+  - `jitter` 0..100, a random wobble at 10 Hz added to the wave (up to +/-0.67); `smooth` 0..100, a slew of 0..200 ms (applies to jitter too);
+  - `hold` 0/1, freeze the output while 1 (the value held is the smoothed one, before depth and offset);
+  - `depth` 0..100 and `offset` -100..100: the output is `0.5 + offset/200 + depth/100 * (value - 0.5)`, clipped to 0..1;
+  - `rate` (Hz, 0..40), `x10` (0/1, multiplies the rate), `sync` (0/1) and `div` (0-23, the sync rate as note values:
+    1/64 1/48 1/32 1/24 1/16 1/12 1/8 1/6 3/16 1/4 5/16 1/3 3/8 1/2 3/4 1 1.5 2 3 4 6 8 16 32; 1/4 = one beat, 1 = a whole note);
+  - `split` (degrees, the stereo split, see below) and `reset` (restarts the cycle).
+  `uni <0|1>` is the old per-LFO polarity switch; it now just sets the polarity of every cell of that LFO.
+- **LFO signals**: outlets 6 to 9 carry the LFOs as signals, 0..1: LFO 1 at the left edge of the stereo field, LFO 1 right edge, LFO 2 left, LFO 2
+  right (the same two values the grains see at the extremes of the field; they are the same signal when `split` is 0). The device feeds them to
+  `live.scope~` for the scrolling preview. They are held per codec block (about 0.25 ms) and lined up with the audio output.
 - `amt <dest> <1-4> <percent>` is the modulation matrix: `dest` is `time`, `size`, `shape`, `pitch`, `density`, `feedback`,
   `reverb` or `drywet`. **100% means the LFO travels the knob's whole range** (amount x the range, clipped at its ends). The LFO is
   0..1 and each cell applies it either bipolar or unipolar (see `pol`):
