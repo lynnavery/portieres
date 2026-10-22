@@ -127,14 +127,34 @@ int TestModulation() {
     std::vector<double> idx; for (size_t i = 0; i < rw.grains.size(); ++i) idx.push_back(double(i));
     f += Check(rw.grains.size() > 20 && Corr(idx, semis(rw)) > 0.95,
                "split 0, spread 0: pitch follows time only (all grains move together)", Corr(idx, semis(rw)));
+
+    // Phase ALONE (Spread 0) must create the stereo split: grains spread across the field and the
+    // left/right edges hear opposite phases.
+    Params s = p; s.spread = 0.0f; s.lfo[0].split_deg = 180.0f;
+    Run rs = Go(s, 5.0);
+    f += Check(Corr(pans(rs), semis(rs)) > 0.8, "Spread 0, split 180deg: pitch still follows pan (Phase alone splits)", Corr(pans(rs), semis(rs)));
+    f += Check(Std(pans(rs)) > 0.25, "Spread 0, split 180deg: grains spread across the stereo field", Std(pans(rs)));
+    // Half the split, half the width; and the extremes still hear the full +/- split/2.
+    Params h = s; h.lfo[0].split_deg = 90.0f;
+    Run rh = Go(h, 5.0);
+    f += Check(Std(pans(rh)) > 0.1 && Std(pans(rh)) < Std(pans(rs)), "split 90deg: narrower field than 180deg", Std(pans(rh)), Std(pans(rs)));
+    // (a narrower field lets Beads' own random pan jitter matter more, so the bar is lower)
+    f += Check(Corr(pans(rh), semis(rh)) > 0.6, "split 90deg: pitch still follows pan", Corr(pans(rh), semis(rh)));
+    // An LFO that feeds nothing per grain does not move the grains, whatever its split.
+    // (Reverb: unlike density or size it does not change trigger regularity or grain overlap,
+    //  which would change Beads' own pan width.)
+    Params u = base; u.lfo[0].split_deg = 180.0f; u.mod[DEST_REVERB][0] = 50.0f;
+    Run ru = Go(u, 5.0), rb0 = Go(base, 5.0);
+    f += Check(std::fabs(Std(pans(ru)) - Std(pans(rb0))) < 0.05, "a split LFO that only feeds reverb does not spread the grains", Std(pans(ru)), Std(pans(rb0)));
   }
 
-  // 6. Modulation does not widen the pan (Phase alone sets the stereo split). Size and density are
-  //    left out on purpose: they change how many grains overlap / how regular the triggers are, and
-  //    Beads' own pan width (0.5 x active grains x spread) follows those.
+  // 6. Modulation by itself does not widen the pan: with split 0 the stereo field is untouched
+  //    (only the Phase knob, or Spread, widens it). Size and density are left out on purpose: they
+  //    change how many grains overlap / how regular the triggers are, and Beads' own pan width
+  //    (0.5 x active grains x spread) follows those.
   {
     Params a = base, b = base, c = base;
-    b.lfo[0].rate = 3.0f; b.lfo[0].split_deg = 180.0f;
+    b.lfo[0].rate = 3.0f; b.lfo[0].split_deg = 0.0f;
     const int dests[] = { DEST_TIME, DEST_SHAPE, DEST_PITCH };
     for (int d : dests) b.mod[d][0] = 100.0f;
     c.lfo[0].rate = 3.0f; c.mod[DEST_SIZE][0] = 100.0f;

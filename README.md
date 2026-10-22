@@ -28,9 +28,12 @@ LFO values (like the attenuverters' random spread, but shaped by an LFO).
   A grain panned hard left sees the LFO `split/2` earlier, hard right `split/2` later. With `split 0` all grains see the same value.
   Time, pitch and shape are sampled per grain; size is drawn before the grain's pan exists, so it (and the block-rate
   destinations density, feedback, reverb and dry/wet) follow the centre value.
-- Modulation never widens the pan. `spread` (attribute, 0-1) adds an independent random pan width: 0 is the original Beads
-  behaviour (and draws no extra random numbers), 1 spreads grains from hard left to hard right. Note that Beads' own pan width
-  grows with the number of overlapping grains, so modulating `size` or `density` changes it indirectly.
+- **Phase alone creates the stereo split.** An LFO that feeds time, shape or pitch and has a `split` spreads the grains across the
+  stereo field by itself (full width at 180 degrees, half at 90), and each grain's position in the field decides which LFO phase
+  it samples: the grain at the far left always sees `-split/2`, the far right `+split/2`. With `split 0` an LFO never moves the pan.
+- `spread` (attribute, 0-1) adds extra, independent random pan width on top: 0 is the original Beads behaviour (and draws no extra
+  random numbers), 1 spreads grains from hard left to hard right. Note that Beads' own pan width grows with the number of
+  overlapping grains, so modulating `size` or `density` changes it indirectly.
 - `tempo` (attribute, BPM; 0 = follow the host tempo) drives synced LFOs.
 - Send `poll` (about 30 times a second) to make the new fifth outlet report each LFO:
   `lfo <n> <value at left edge> <value at right edge> <centre phase 0-1>`. `poll` also refreshes the host tempo.

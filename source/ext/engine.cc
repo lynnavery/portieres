@@ -320,11 +320,20 @@ void Engine::Process(const Params& p, const float* const* in, float* out_l,
       float off[NUM_DESTS];
       for (int dd = 0; dd < NUM_DESTS; ++dd) off[dd] = gm.Offset(dd, 0.0f);
       // Grain level is only needed if some LFO feeds time / shape / pitch with a split.
+      // Phase alone creates the stereo split: an LFO that feeds one of those and has a split
+      // spreads the grains across the stereo field by itself (full width at 180 degrees), so
+      // the left and right edges really hear different LFO phases. The Spread knob adds to it.
       bool grain_split = false;
+      float phase_width = 0.0f;
       const int kPerGrain[3] = { DEST_TIME, DEST_SHAPE, DEST_PITCH };
-      for (int k = 0; k < 3; ++k)
-        for (int i = 0; i < kNumLfos; ++i)
-          if (gm.depth[kPerGrain[k]][i] != 0.0f && gm.split[i] > 0.0f) grain_split = true;
+      for (int i = 0; i < kNumLfos; ++i) {
+        bool assigned = false;
+        for (int k = 0; k < 3; ++k) assigned |= gm.depth[kPerGrain[k]][i] != 0.0f;
+        if (assigned && gm.split[i] > 0.0f) {
+          grain_split = true;
+          phase_width = std::max(phase_width, Clamp(gm.split[i] * 2.0f, 0.0f, 1.0f));
+        }
+      }
 
       beads::Parameters prm;
       prm.time = { Clamp(p.time + off[DEST_TIME], 0.0f, 1.0f), p.time_amt, cv_mean[0],
@@ -337,7 +346,7 @@ void Engine::Process(const Params& p, const float* const* in, float* out_l,
                     in[IN_PITCH_CV] != nullptr };
       prm.monophonic_mode = false;
       prm.modulation = grain_split ? &gm : nullptr;
-      prm.spread = Clamp(p.spread, 0.0f, 1.0f);
+      prm.spread = Clamp(p.spread + phase_width, 0.0f, 1.0f);
       beads::ModulatedParameter d;
       d.base = Clamp(p.density + off[DEST_DENSITY], 0.0f, 1.0f);
       d.cv = in[IN_DENSITY_CV] ? cv_mean[4] : 0.0f;

@@ -121,11 +121,15 @@ class GranularPlayer {
     return num_active_grains;
   }
   
+  // `stereo` (optional, port addition): the grain's position in the stereo field, -1..1,
+  // from the same random draw that widens the pan by p.spread (0 when spread is 0).
   inline void ComputeGrainAmplitudeAndPan(
       const TriggerGenerator::Output& trigger,
       const Parameters& p,
       float* amplitude,
-      float* pan) {
+      float* pan,
+      float* stereo = NULL) {
+    if (stereo) *stereo = 0.0f;
     const float num_active_grains = float(CountActiveGrains() + 1);
     *amplitude = 1.0f / stmlib::Sqrt(num_active_grains);
 
@@ -138,6 +142,7 @@ class GranularPlayer {
     if (p.spread > 0.0f) {
       const float u = stmlib::Random::GetFloat();
       *pan = std::min(1.0f, std::max(0.0f, *pan + (u - 0.5f) * p.spread));
+      if (stereo) *stereo = 2.0f * u - 1.0f;
     }
   }
   

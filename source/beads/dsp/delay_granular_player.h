@@ -71,8 +71,8 @@ class DelayGranularPlayer : public GranularPlayer<DelayGrain, 32> {
       const float duration = p.size.value();
       const bool reverse = duration < 0.3333333f;
 
-      float amplitude, pan;
-      ComputeGrainAmplitudeAndPan(trigger, p, &amplitude, &pan);
+      float amplitude, pan, stereo;
+      ComputeGrainAmplitudeAndPan(trigger, p, &amplitude, &pan, &stereo);
       
       const int safety = DelayGrain::head_crossing_safety_zone + 1;
       const int max_delay = delay_line->duration() - 2 * safety;
@@ -81,13 +81,15 @@ class DelayGranularPlayer : public GranularPlayer<DelayGrain, 32> {
       // random sequence).
       // Port addition: per-grain LFO split. The block-level LFO value is already
       // in the bases; here a grain only adds how its stereo position differs from
-      // the centre (zero when the LFO split is 0). Size is drawn before the pan
-      // exists, so it follows the centre value only. Copies of the parameters
-      // keep the number of random draws (and so the sequence) unchanged.
+      // the centre (zero when the LFO split is 0). The stereo position is the grain's
+      // own random draw (the same one that offsets its pan), so the grain at the left
+      // extreme always sees the full -split/2 and the right extreme +split/2, whatever
+      // the pan width. Size is drawn before the pan exists, so it follows the centre
+      // value only. Copies of the parameters keep the number of random draws (and so
+      // the sequence) unchanged.
       float d_time = 0.0f, d_pitch = 0.0f, d_shape = 0.0f;
       if (p.modulation) {
-        float u = (pan - 0.5f) * 2.0f;
-        u = u < -1.0f ? -1.0f : (u > 1.0f ? 1.0f : u);
+        const float u = stereo < -1.0f ? -1.0f : (stereo > 1.0f ? 1.0f : stereo);
         d_time = p.modulation->GrainDelta(MOD_TIME, u);
         d_pitch = p.modulation->GrainDelta(MOD_PITCH, u);
         d_shape = p.modulation->GrainDelta(MOD_SHAPE, u);
