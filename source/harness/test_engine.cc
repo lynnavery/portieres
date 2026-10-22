@@ -132,7 +132,6 @@ int TestLevelControl() {
 int TestModulation() {
   int f = 0;
   Params base; base.density = 0.9f; base.size = 0.2f;
-  for (auto& l : base.lfo) l.uni = 0;          // these tests were written for a bipolar LFO; unipolar is the default
 
   // The LFO shapes themselves (pure maths).
   {
@@ -180,15 +179,6 @@ int TestModulation() {
     f += Check(std::fabs(pk - 0.0f) < 1e-5 && std::fabs(tr - 0.4f) < 1e-5, "unipolar LFO, negative amount: sweeps from the knob down to 0", pk, tr);
     sweep(beads::MOD_FEEDBACK, 0.7f, -1.0f, false, &pk, &tr);
     f += Check(std::fabs(pk - 0.0f) < 1e-5 && std::fabs(tr - 1.0f) < 1e-5, "negative amount inverts and still reaches both ends", pk, tr);
-  }
-  // The device's default is a unipolar LFO: it moves the parameter from the knob up to the top of its range.
-  {
-    Params q; q.density = 0.9f; q.size = 0.2f; q.time = 0.1f; q.lfo[0].rate = 0.3f; q.mod[DEST_TIME][0] = 100.0f;
-    Run r = Go(q, 9.0, 0.5);
-    float lo = 1.0f, hi = 0.0f;
-    for (auto& g : r.grains) { lo = std::min(lo, g.time); hi = std::max(hi, g.time); }
-    f += Check(r.grains.size() > 30 && hi > 0.95f && lo > 0.08f, "engine default (unipolar): Time knob at 0.1, LFO 100%: grains go from the knob up to the top, never below",
-               lo, hi);
   }
   // Through the engine: a Time knob at 0.1 with a slow 100% LFO must send grains all the way up to 1 and down to 0.
   {

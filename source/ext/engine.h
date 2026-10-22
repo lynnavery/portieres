@@ -24,7 +24,7 @@ struct LfoParams {
   long div = 7;           // 0..17: 1/16T 1/16 1/16. ... 2/1T 2/1 2/1. (7 = 1/4)
   float split_deg = 0.0f; // stereo split: how far apart (degrees of the cycle)
                           // the left and right edges of the stereo field sample the LFO
-  long uni = 1;           // 1 = unipolar (0..1, the default and what the device uses), 0 = bipolar (-1..1)
+  long uni = 0;           // 0 = bipolar (-1..1, the default and what the device uses), 1 = unipolar (0..1)
   long reset = 0;         // a counter: any change restarts the cycle
 };
 
