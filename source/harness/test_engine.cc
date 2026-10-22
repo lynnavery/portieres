@@ -183,7 +183,8 @@ int TestModulation() {
     g.unipolar[beads::MOD_FEEDBACK][0] = 1; g.depth[beads::MOD_FEEDBACK][0] = -1.0f;
     g.cycles[0] = 0.25; const float neg_pk = g.Offset(beads::MOD_FEEDBACK, 0.0f);
     f += Check(std::fabs(neg_pk + 1.0f) < 1e-5, "unipolar with a negative amount goes down instead", neg_pk);
-    f += Check(std::fabs(g.Lfo(0, 0.0) - 1.0f) < 1e-5, "the LFO value itself (and the display readout) stays bipolar");
+    f += Check(std::fabs(g.Lfo(0, 0.0) - 1.0f) < 1e-5 && std::fabs(g.Lfo(0, 0.5)) < 1e-5,
+               "the LFO value itself (and the display readout) is 0..1: 1 at the sine peak, 0 at the trough", g.Lfo(0, 0.0), g.Lfo(0, 0.5));
   }
   {
     Params q; q.density = 0.9f; q.size = 0.2f; q.time = 0.5f; q.lfo[0].rate = 0.3f; q.mod[DEST_TIME][0] = 40.0f;
