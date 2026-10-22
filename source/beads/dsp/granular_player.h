@@ -32,6 +32,7 @@
 #include "stmlib/stmlib.h"
 
 #include "beads/dsp/grain.h"
+#include "beads/dsp/grain_modulation.h"
 #include "beads/dsp/randomized_parameter.h"
 #include "beads/dsp/trigger_generator.h"
 
@@ -50,6 +51,13 @@ struct Parameters {
   RandomizedParameter shape;
   RandomizedParameter pitch;
   bool monophonic_mode;
+
+  // Port additions (both default to "off", leaving the original behaviour).
+  // Host LFOs sampled per grain (time / pitch / shape, split by stereo position).
+  const GrainModulation* modulation = NULL;
+  // Extra random pan width, independent of grain count and randomness: 0 = the
+  // original Beads behaviour, 1 = grains anywhere from hard left to hard right.
+  float spread = 0.0f;
 };
 
 template<typename T, int num_grains>
@@ -124,6 +132,13 @@ class GranularPlayer {
     const float total_spread = ComputeSpread(trigger, p);
     const float pan_spread = 0.5f * num_active_grains * total_spread;
     *pan = BoundedRandomFloat(pan_spread);
+
+    // Port addition: independent random pan width. Only draws a random number
+    // when the spread knob is up, so spread = 0 keeps the original sequence.
+    if (p.spread > 0.0f) {
+      const float u = stmlib::Random::GetFloat();
+      *pan = std::min(1.0f, std::max(0.0f, *pan + (u - 0.5f) * p.spread));
+    }
   }
   
   inline T* new_grain() { return grain_priority_list_[0]; }

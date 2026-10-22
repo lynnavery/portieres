@@ -79,10 +79,30 @@ class DelayGranularPlayer : public GranularPlayer<DelayGrain, 32> {
 
       // Locals keep the original argument evaluation order (and so the
       // random sequence).
-      const float time = p.time.value();
-      const float pitch_ratio = p.pitch.pitch_value();
+      // Port addition: per-grain LFO split. The block-level LFO value is already
+      // in the bases; here a grain only adds how its stereo position differs from
+      // the centre (zero when the LFO split is 0). Size is drawn before the pan
+      // exists, so it follows the centre value only. Copies of the parameters
+      // keep the number of random draws (and so the sequence) unchanged.
+      float d_time = 0.0f, d_pitch = 0.0f, d_shape = 0.0f;
+      if (p.modulation) {
+        float u = (pan - 0.5f) * 2.0f;
+        u = u < -1.0f ? -1.0f : (u > 1.0f ? 1.0f : u);
+        d_time = p.modulation->GrainDelta(MOD_TIME, u);
+        d_pitch = p.modulation->GrainDelta(MOD_PITCH, u);
+        d_shape = p.modulation->GrainDelta(MOD_SHAPE, u);
+      }
+      RandomizedParameter time_p = p.time;
+      RandomizedParameter pitch_p = p.pitch;
+      RandomizedParameter shape_p = p.shape;
+      time_p.base += d_time;
+      pitch_p.base += d_pitch;
+      shape_p.base += d_shape;
+
+      const float time = time_p.value();
+      const float pitch_ratio = pitch_p.pitch_value();
       const float grain_duration = ComputeGrainDuration(duration);
-      const float shape = p.shape.value();
+      const float shape = shape_p.value();
 
       new_grain()->Start(
           delay_line,

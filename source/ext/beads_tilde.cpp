@@ -2,10 +2,12 @@
 // DSP (c) 2017 Emilie Gillet, MIT license. Max glue for this port.
 #include "ext.h"
 #include "ext_obex.h"
+#include "ext_itm.h"
 #include "z_dsp.h"
 
 #include <atomic>
 #include <cmath>
+#include <cstring>
 
 #include "ext/engine.h"
 
@@ -21,9 +23,12 @@ typedef struct _beads {
   double sr;
   long vec;
   long reconfigure;    // consumed by the audio thread
-  void* grain_out;     // message outlet: "grain ..." list per grain
+  void* grain_out;     // message outlet 3: "grain ..." list per grain
+  void* lfo_out;       // message outlet 4: "lfo <n> <valueL> <valueR> <phase>" on `poll`
   t_clock* clock;      // drains grain events on the scheduler thread
   std::atomic<int>* clock_pending;
+  double tempo_attr;                 // 0 = follow the host (Live) tempo
+  std::atomic<double>* host_tempo;   // refreshed on `poll`
 } t_beads;
 
 static t_class* s_beads_class = nullptr;
@@ -41,6 +46,9 @@ t_max_err beads_media_set(t_beads* x, void* attr, long argc, t_atom* argv);
 t_max_err beads_mono_set(t_beads* x, void* attr, long argc, t_atom* argv);
 void beads_reset(t_beads* x);
 void beads_drain(t_beads* x);
+void beads_lfo(t_beads* x, t_symbol* s, long argc, t_atom* argv);
+void beads_amt(t_beads* x, t_symbol* s, long argc, t_atom* argv);
+void beads_poll(t_beads* x);
 C74_EXPORT void ext_main(void* r);
 }
 
@@ -50,6 +58,12 @@ void ext_main(void* r) {
   class_addmethod(c, (method)beads_dsp64, "dsp64", A_CANT, 0);
   class_addmethod(c, (method)beads_assist, "assist", A_CANT, 0);
   class_addmethod(c, (method)beads_reset, "reset", 0);
+  // LFO bank: lfo <1-4> <shape|rate|sync|div|split|uni|reset> [value]
+  class_addmethod(c, (method)beads_lfo, "lfo", A_GIMME, 0);
+  // Matrix cell: amt <time|size|shape|pitch|density|feedback|reverb|drywet> <1-4> <percent>
+  class_addmethod(c, (method)beads_amt, "amt", A_GIMME, 0);
+  // Refreshes the host tempo and reports every LFO on outlet 4
+  class_addmethod(c, (method)beads_poll, "poll", 0);
 
   // Params live in a nested struct: use offsetof via the struct member names.
   CLASS_ATTR_FLOAT(c, "time", 0, t_beads, params.time);
@@ -89,6 +103,13 @@ void ext_main(void* r) {
   CLASS_ATTR_LONG(c, "gateout", 0, t_beads, params.gate_out);
   CLASS_ATTR_STYLE_LABEL(c, "gateout", 0, "onoff", "Right output = trigger gate");
 
+  CLASS_ATTR_FLOAT(c, "spread", 0, t_beads, params.spread);
+  CLASS_ATTR_FILTER_CLIP(c, "spread", 0., 1.);
+  CLASS_ATTR_LABEL(c, "spread", 0, "Stereo spread: extra random pan width (0 = original Beads)");
+  CLASS_ATTR_DOUBLE(c, "tempo", 0, t_beads, tempo_attr);
+  CLASS_ATTR_FILTER_CLIP(c, "tempo", 0., 999.);
+  CLASS_ATTR_LABEL(c, "tempo", 0, "BPM for synced LFOs (0 = follow the host tempo)");
+
   CLASS_ATTR_LONG(c, "media", 0, t_beads, media);
   CLASS_ATTR_ENUMINDEX(c, "media", 0, "\"dirty tape\" \"clean tape\" \"vintage digital\" digital");
   CLASS_ATTR_ACCESSORS(c, "media", NULL, beads_media_set);
@@ -115,7 +136,8 @@ void* beads_new(t_symbol* s, long argc, t_atom* argv) {
   t_beads* x = (t_beads*)object_alloc(s_beads_class);
   if (!x) return nullptr;
   dsp_setup((t_pxobject*)x, NUM_INPUTS);
-  // Outlets are created right to left. Outlets 0/1 keep their positions.
+  // Outlets are created right to left. Outlets 0-3 keep their positions.
+  x->lfo_out = outlet_new((t_object*)x, NULL);    // 4: LFO values (on `poll`)
   x->grain_out = outlet_new((t_object*)x, NULL);  // 3: grain messages
   outlet_new((t_object*)x, "signal");             // 2: grain trigger impulses
   outlet_new((t_object*)x, "signal");             // 1: out R / gate
@@ -123,6 +145,8 @@ void* beads_new(t_symbol* s, long argc, t_atom* argv) {
   x->ob.z_misc |= Z_NO_INPLACE;  // separate in/out buffers (we read late)
   x->engine = new Engine();
   x->clock_pending = new std::atomic<int>(0);
+  x->host_tempo = new std::atomic<double>(120.0);
+  x->tempo_attr = 0.0;
   x->clock = (t_clock*)clock_new((t_object*)x, (method)beads_drain);
   x->params = Params();
   x->media = 3;
@@ -147,6 +171,8 @@ void beads_free(t_beads* x) {
   x->engine = nullptr;
   delete x->clock_pending;
   x->clock_pending = nullptr;
+  delete x->host_tempo;
+  x->host_tempo = nullptr;
 }
 
 void beads_assist(t_beads* x, void* b, long m, long a, char* s) {
@@ -157,10 +183,11 @@ void beads_assist(t_beads* x, void* b, long m, long a, char* s) {
     "(signal) Seed gate", "(signal) Freeze gate" };
   if (m == ASSIST_INLET) strncpy_zero(s, in_names[a], 256);
   else {
-    static const char* out_names[4] = {
+    static const char* out_names[5] = {
       "(signal) Out L", "(signal) Out R / gate",
       "(signal) Grain trigger (1-sample impulse per grain)",
-      "grain <time> <pitch st> <dur ms> <shape> <amp> <pan> <reverse>" };
+      "grain <time> <pitch st> <dur ms> <shape> <amp> <pan> <reverse>",
+      "lfo <1-4> <value at left edge> <value at right edge> <phase 0-1> (one per LFO, on `poll`)" };
     strncpy_zero(s, out_names[a], 256);
   }
 }
@@ -183,6 +210,69 @@ t_max_err beads_mono_set(t_beads* x, void* attr, long argc, t_atom* argv) {
 }
 
 void beads_reset(t_beads* x) { x->reconfigure = 1; }
+
+// lfo <1-4> <param> [value]
+void beads_lfo(t_beads* x, t_symbol* s, long argc, t_atom* argv) {
+  if (argc < 2 || atom_gettype(argv + 1) != A_SYM) {
+    object_error((t_object*)x, "lfo: expected  lfo <1-4> <param> [value]");
+    return;
+  }
+  const long n = atom_getlong(argv);
+  if (n < 1 || n > kNumLfos) {
+    object_error((t_object*)x, "lfo: LFO number must be 1-%d", (int)kNumLfos);
+    return;
+  }
+  LfoParams& l = x->params.lfo[n - 1];
+  const char* what = atom_getsym(argv + 1)->s_name;
+  const double v = argc >= 3 ? atom_getfloat(argv + 2) : 0.0;
+  auto clampl = [](long a, long lo, long hi) { return a < lo ? lo : (a > hi ? hi : a); };
+  if (!strcmp(what, "shape")) l.shape = clampl((long)std::lround(v), 0, 6);
+  else if (!strcmp(what, "rate")) l.rate = (float)(v < 0 ? 0 : v);
+  else if (!strcmp(what, "sync")) l.sync = v != 0;
+  else if (!strcmp(what, "div")) l.div = clampl((long)std::lround(v), 0, 17);
+  else if (!strcmp(what, "split")) l.split_deg = (float)(v < 0 ? 0 : (v > 360 ? 360 : v));
+  else if (!strcmp(what, "uni")) l.uni = v != 0;
+  else if (!strcmp(what, "reset")) l.reset += 1;    // any change restarts the cycle
+  else object_error((t_object*)x, "lfo: unknown parameter '%s'", what);
+}
+
+// amt <dest> <1-4> <percent>
+void beads_amt(t_beads* x, t_symbol* s, long argc, t_atom* argv) {
+  static const char* kDest[NUM_DESTS] = { "time", "size", "shape", "pitch",
+                                          "density", "feedback", "reverb", "drywet" };
+  if (argc < 3 || atom_gettype(argv) != A_SYM) {
+    object_error((t_object*)x, "amt: expected  amt <dest> <1-4> <percent>");
+    return;
+  }
+  const char* name = atom_getsym(argv)->s_name;
+  int dest = -1;
+  for (int d = 0; d < NUM_DESTS; ++d) if (!strcmp(name, kDest[d])) dest = d;
+  const long n = atom_getlong(argv + 1);
+  if (dest < 0 || n < 1 || n > kNumLfos) {
+    object_error((t_object*)x, "amt: bad destination '%s' or LFO %ld", name, n);
+    return;
+  }
+  double pct = atom_getfloat(argv + 2);
+  pct = pct < -100 ? -100 : (pct > 100 ? 100 : pct);
+  x->params.mod[dest][n - 1] = (float)pct;
+}
+
+// Refreshes the host tempo, then reports every LFO: lfo <n> <valueL> <valueR> <phase>
+void beads_poll(t_beads* x) {
+  if (!x->engine) return;
+  const double bpm = itm_gettempo((t_itm*)itm_getglobal());
+  if (bpm > 0) x->host_tempo->store(bpm);
+  for (int i = 0; i < kNumLfos; ++i) {
+    float vl, vr, ph;
+    x->engine->GetLfo(i, &vl, &vr, &ph);
+    t_atom a[4];
+    atom_setlong(a + 0, i + 1);
+    atom_setfloat(a + 1, vl);
+    atom_setfloat(a + 2, vr);
+    atom_setfloat(a + 3, ph);
+    outlet_anything(x->lfo_out, gensym("lfo"), 4, a);
+  }
+}
 
 // Scheduler thread: turn queued grain events into "grain" messages.
 void beads_drain(t_beads* x) {
@@ -241,6 +331,7 @@ void beads_perform64(t_beads* x, t_object* dsp64, double** ins, long numins,
       }
     }
     Params p = x->params;
+    p.tempo = x->tempo_attr > 0 ? (float)x->tempo_attr : (float)x->host_tempo->load();
     x->engine->Process(p, in, out_l, out_r, (size_t)n,
                        numouts > 2 ? out_trig : nullptr);
     for (long k = 0; k < n; ++k) {
