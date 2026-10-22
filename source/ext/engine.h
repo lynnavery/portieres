@@ -53,6 +53,13 @@ struct Params {
                                         // half the destination's range either side
   float tempo = 120.0f;                 // BPM, for synced LFOs
   float spread = 0.0f;                  // extra random pan width, 0..1 (0 = original Beads)
+
+  // Level control. Overlapping grains of the same material can come out 10-15 dB hotter than the
+  // input; the original relied on a fixed 0.9 peak limiter and on the hardware input AGC.
+  long wetcap = 1;                      // 1 = hold the wet path to `wetcap_db` above the input level
+  float wetcap_db = 3.0f;               // how far above a slow estimate of the input it may go
+  long overlap = 0;                     // 1 = stronger overlap scaling (see overlap_amt)
+  float overlap_amt = 1.0f;             // 0 = original 1/sqrt(grains playing) .. 1 = 1/(grains playing)
 };
 
 // One entry per grain started (granular mode; delay mode has taps, not grains).

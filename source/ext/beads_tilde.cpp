@@ -106,6 +106,18 @@ void ext_main(void* r) {
   CLASS_ATTR_FLOAT(c, "spread", 0, t_beads, params.spread);
   CLASS_ATTR_FILTER_CLIP(c, "spread", 0., 1.);
   CLASS_ATTR_LABEL(c, "spread", 0, "Stereo spread: extra random pan width (0 = original Beads)");
+  CLASS_ATTR_LONG(c, "wetcap", 0, t_beads, params.wetcap);
+  CLASS_ATTR_STYLE_LABEL(c, "wetcap", 0, "onoff", "Level cap: hold the wet path to a set level above the input");
+  CLASS_ATTR_FILTER_CLIP(c, "wetcap", 0, 1);
+  CLASS_ATTR_FLOAT(c, "wetcap_db", 0, t_beads, params.wetcap_db);
+  CLASS_ATTR_FILTER_CLIP(c, "wetcap_db", 0., 24.);
+  CLASS_ATTR_LABEL(c, "wetcap_db", 0, "Level cap: dB above the input level the wet path may reach");
+  CLASS_ATTR_LONG(c, "overlap", 0, t_beads, params.overlap);
+  CLASS_ATTR_STYLE_LABEL(c, "overlap", 0, "onoff", "Stronger overlap scaling");
+  CLASS_ATTR_FILTER_CLIP(c, "overlap", 0, 1);
+  CLASS_ATTR_FLOAT(c, "overlap_amt", 0, t_beads, params.overlap_amt);
+  CLASS_ATTR_FILTER_CLIP(c, "overlap_amt", 0., 1.);
+  CLASS_ATTR_LABEL(c, "overlap_amt", 0, "Overlap scaling amount (0 = original 1/sqrt(n), 1 = 1/n)");
   CLASS_ATTR_DOUBLE(c, "tempo", 0, t_beads, tempo_attr);
   CLASS_ATTR_FILTER_CLIP(c, "tempo", 0., 999.);
   CLASS_ATTR_LABEL(c, "tempo", 0, "BPM for synced LFOs (0 = follow the host tempo)");
@@ -126,6 +138,10 @@ void ext_main(void* r) {
   CLASS_ATTR_DEFAULT(c, "drywet", 0, "0.5");
   CLASS_ATTR_DEFAULT(c, "gain", 0, "1.");
   CLASS_ATTR_DEFAULT(c, "media", 0, "3");
+  CLASS_ATTR_DEFAULT(c, "wetcap", 0, "1");
+  CLASS_ATTR_DEFAULT(c, "wetcap_db", 0, "3.");
+  CLASS_ATTR_DEFAULT(c, "overlap", 0, "0");
+  CLASS_ATTR_DEFAULT(c, "overlap_amt", 0, "1.");
 
   class_dspinit(c);
   class_register(CLASS_BOX, c);

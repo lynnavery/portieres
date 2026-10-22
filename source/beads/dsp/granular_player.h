@@ -58,6 +58,9 @@ struct Parameters {
   // Extra random pan width, independent of grain count and randomness: 0 = the
   // original Beads behaviour, 1 = grains anywhere from hard left to hard right.
   float spread = 0.0f;
+  // Stronger overlap scaling: 0 = original (each grain is scaled by 1/sqrt(grains playing)),
+  // 1 = 1/(grains playing), which also holds back overlapping grains that add up coherently.
+  float overlap = 0.0f;
 };
 
 template<typename T, int num_grains>
@@ -132,6 +135,10 @@ class GranularPlayer {
     if (stereo) *stereo = 0.0f;
     const float num_active_grains = float(CountActiveGrains() + 1);
     *amplitude = 1.0f / stmlib::Sqrt(num_active_grains);
+    if (p.overlap > 0.0f) {
+      // exponent 0.5 (original) .. 1.0
+      *amplitude = std::exp(-(0.5f + 0.5f * p.overlap) * std::log(num_active_grains));
+    }
 
     const float total_spread = ComputeSpread(trigger, p);
     const float pan_spread = 0.5f * num_active_grains * total_spread;

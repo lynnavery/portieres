@@ -91,6 +91,11 @@ void Processor::Configure(Media media, bool mono) {
       break;
   }
   
+  cap_in_pow_ = 0.0f;
+  cap_in_smooth_ = 0.0f;
+  cap_wet_pow_ = 0.0f;
+  cap_gain_ = 1.0f;
+
   float sr = sample_rate();
   pre_reverb_limiter_.Init(1.0f / (sr * 4.0f), 0.9f);
   output_limiter_.Init(1.0f / (sr * 6.0f), 0.9f);
@@ -217,9 +222,48 @@ void Processor::Process(
   stmlib::ParameterInterpolator dry_modulation(&dry_, dry, size);
   stmlib::ParameterInterpolator wet_modulation(&wet_, wet, size);
 
+  // Port addition: wet-path level cap. Overlapping grains of the same material can add up to
+  // 10-15 dB more than went in (the original relied on a fixed 0.9 peak limiter and on the
+  // hardware input AGC feeding it a hot signal). With the cap on, the wet signal is eased down
+  // whenever it exceeds the input level by more than the cap, and left alone otherwise.
+  // The input estimate has a long memory and is held while frozen, so tails, feedback and
+  // frozen textures are not clamped just because the live input went quiet. With the cap off
+  // the arithmetic below is exactly the original.
+  const float cap_ratio = mix_parameters.wet_cap_ratio;
+  const bool cap_on = cap_ratio > 0.0f;
+  const float cap_ratio2 = cap_ratio * cap_ratio;
+  const float sr_cap = sample_rate();
+  const float in_attack = 1.0f / (sr_cap * 0.05f);
+  const float in_release = 1.0f / (sr_cap * 10.0f);
+  const float wet_slew = 1.0f / (sr_cap * 0.15f);
+  const float gain_attack = 1.0f / (sr_cap * 0.03f);
+  const float gain_release = 1.0f / (sr_cap * 0.4f);
+
   for (size_t i = 0; i < size; ++i) {
-    out[i] = dry_modulation.Next() * dry_signal[i] + \
-        wet_modulation.Next() * out[i];
+    const float dry_gain = dry_modulation.Next();
+    FloatFrame wet_signal = wet_modulation.Next() * out[i];
+    if (cap_on) {
+      // Mean power of the input over ~150 ms first (instantaneous power of a sine swings
+      // between 0 and twice its mean, which would bias the follower below up by 3 dB), then a
+      // fast-attack / slow-release follower on that.
+      const float in_inst = 0.5f * (in[i].l * in[i].l + in[i].r * in[i].r);
+      cap_in_smooth_ += wet_slew * (in_inst - cap_in_smooth_);
+      if (!freeze[i]) {
+        cap_in_pow_ += (cap_in_smooth_ > cap_in_pow_ ? in_attack : in_release) *
+                       (cap_in_smooth_ - cap_in_pow_);
+      }
+      const float wet_p = 0.5f * (wet_signal.l * wet_signal.l + wet_signal.r * wet_signal.r);
+      cap_wet_pow_ += wet_slew * (wet_p - cap_wet_pow_);
+      const float limit = cap_in_pow_ * cap_ratio2;
+      const float target = (cap_wet_pow_ > limit && cap_wet_pow_ > 1.0e-12f)
+          ? sqrtf(limit / cap_wet_pow_) : 1.0f;
+      cap_gain_ += (target < cap_gain_ ? gain_attack : gain_release) * (target - cap_gain_);
+      wet_signal.l *= cap_gain_;
+      wet_signal.r *= cap_gain_;
+    } else {
+      cap_gain_ = 1.0f;
+    }
+    out[i] = dry_gain * dry_signal[i] + wet_signal;
   }
   
   // Wow and flutter simulation.

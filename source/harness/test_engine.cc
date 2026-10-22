@@ -62,6 +62,73 @@ int Check(bool ok, const char* what, double a = 0, double b = 0) {
   return ok ? 0 : 1;
 }
 
+// Level of the wet path while the input is switched off (optionally frozen) after `lead` seconds of tone.
+// Returns dBFS RMS (L and R averaged) over the last 1.5 s.
+double TailDbfs(Params p, double lead, double tail, bool freeze_in_tail) {
+  const double sr = 48000; const int vs = 64;
+  stmlib::Random::Seed(777);
+  Engine e; e.Setup(sr, vs, 3, false);
+  p.dry_wet = 1.0f; p.seed_button = 2;
+  std::vector<float> L(vs), oL(vs), oR(vs);
+  double ph = 0, out2 = 0; long n = 0;
+  for (int t = 0; t < int(sr * (lead + tail)); t += vs) {
+    const bool in_tail = t >= int(sr * lead);
+    p.freeze = (in_tail && freeze_in_tail) ? 1 : 0;
+    for (int i = 0; i < vs; ++i) { L[i] = in_tail ? 0.0f : 0.1414f * sinf(ph); ph += 2 * M_PI * 220.0 / sr; }
+    const float* in[NUM_INPUTS] = { L.data(), L.data(), 0, 0, 0, 0, 0, 0, 0 };
+    e.Process(p, in, oL.data(), oR.data(), vs);
+    if (t > sr * (lead + tail - 1.5)) for (int i = 0; i < vs; ++i) { out2 += 0.5 * (oL[i] * oL[i] + oR[i] * oR[i]); ++n; }
+  }
+  return 10 * std::log10(out2 / n + 1e-20);
+}
+
+// Level cap and overlap scaling.
+int TestLevelControl() {
+  int f = 0;
+  Params def;                                            // density .7, size .5: the everyday case
+  Params dense = def; dense.density = 1.0f; dense.size = 0.8f;      // +11 dB above the input without the cap
+  Params regular = def; regular.density = 0.0f; regular.size = 0.9f;  // +15 dB above the input without the cap
+  auto with = [](Params p, int cap, float db, int ov, float amt) { p.wetcap = cap; p.wetcap_db = db; p.overlap = ov; p.overlap_amt = amt; return p; };
+
+  // Cap off is the original behaviour, cap on only acts when the wet path runs hot.
+  const double hot_off = LevelDb(with(dense, 0, 3, 0, 1)), reg_off = LevelDb(with(regular, 0, 3, 0, 1));
+  f += Check(hot_off > 8.0 && reg_off > 11.0, "without the cap, dense/long and regular/long grains run 8+ and 11+ dB hot", hot_off, reg_off);
+  for (float db : { 0.0f, 3.0f, 6.0f }) {
+    const double h = LevelDb(with(dense, 1, db, 0, 1)), r = LevelDb(with(regular, 1, db, 0, 1));
+    char what[96];
+    snprintf(what, sizeof what, "cap %+.0f dB holds dense/long and regular/long grains to about +%.0f dB", db, db);
+    f += Check(h < db + 1.5 && r < db + 1.5 && h > db - 3.5 && r > db - 3.5, what, h, r);
+  }
+  // It stays out of the way everywhere else.
+  double worst = 0;
+  for (float d : { 0.2f, 0.3f, 0.6f, 0.7f, 0.8f }) for (float z : { 0.2f, 0.4f, 0.5f, 0.6f }) {
+    Params p = def; p.density = d; p.size = z;
+    worst = std::max(worst, std::fabs(LevelDb(with(p, 1, 3, 0, 1)) - LevelDb(with(p, 0, 3, 0, 1))));
+  }
+  f += Check(worst < 0.5, "away from the hot zone the cap changes the level by under 0.5 dB (worst of 20 settings)", worst);
+
+  // Tails and Freeze must not be clamped just because the live input went quiet.
+  const double tail_off = TailDbfs(with(dense, 0, 3, 0, 1), 5.0, 3.0, false);
+  const double tail_on = TailDbfs(with(dense, 1, 3, 0, 1), 5.0, 3.0, false);
+  f += Check(tail_on > -26.0 && tail_on < tail_off + 0.5, "input stops: the tail is capped but not silenced", tail_off, tail_on);
+  const double frz_off = TailDbfs(with(dense, 0, 3, 0, 1), 5.0, 4.0, true);
+  const double frz_on = TailDbfs(with(dense, 1, 3, 0, 1), 5.0, 4.0, true);
+  f += Check(frz_on > -26.0 && frz_on < frz_off + 0.5, "Freeze with the input silent: the frozen texture is capped but not silenced", frz_off, frz_on);
+
+  // Overlap scaling: 0 / off = original, more amount = quieter when many grains overlap.
+  const double o_off = LevelDb(with(dense, 0, 3, 0, 1)), o_zero = LevelDb(with(dense, 0, 3, 1, 0.0f));
+  const double o_half = LevelDb(with(dense, 0, 3, 1, 0.5f)), o_full = LevelDb(with(dense, 0, 3, 1, 1.0f));
+  f += Check(std::fabs(o_zero - o_off) < 0.05, "overlap on with amount 0 is the original", o_off, o_zero);
+  f += Check(o_full < o_half - 1.5 && o_half < o_off - 1.5, "overlap scaling: more amount = quieter dense grains (off > 0.5 > 1.0)", o_half, o_full);
+  f += Check(o_off - o_full > 6.0, "overlap scaling at 1.0 takes 6+ dB off the dense/long case", o_off, o_full);
+  const double d_off = LevelDb(with(def, 0, 3, 0, 1)), d_full = LevelDb(with(def, 0, 3, 1, 1.0f));
+  f += Check(d_off - d_full < o_off - o_full, "it bites less on sparse settings than on dense ones", d_off - d_full, o_off - o_full);
+  // Both on together.
+  const double both = LevelDb(with(dense, 1, 3, 1, 1.0f));
+  f += Check(both <= std::min(LevelDb(with(dense, 1, 3, 0, 1)), o_full) + 0.5, "cap and overlap scaling together are never louder than either alone", both);
+  return f;
+}
+
 int TestModulation() {
   int f = 0;
   Params base; base.density = 0.9f; base.size = 0.2f;
@@ -328,6 +395,7 @@ int main() {
     fails += nan;
   }
   fails += TestModulation();
+  fails += TestLevelControl();
   printf("%d failures\n", fails);
   return fails != 0;
 }

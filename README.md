@@ -43,6 +43,19 @@ LFO values (like the attenuverters' random spread, but shaped by an LFO).
 - Send `poll` (about 30 times a second) to make the new fifth outlet report each LFO:
   `lfo <n> <value at left edge> <value at right edge> <centre phase 0-1>`. `poll` also refreshes the host tempo.
 
+## Level control: wet-path cap and overlap scaling (port additions)
+Overlapping grains of the same material add up: with long grains at either density extreme the wet path comes out 10-15 dB
+hotter than the input (worst case measured: +15 dB at density 0, size 0.9; see `source/sweep_levels.sh`). The original firmware only
+had two fixed 0.9 peak limiters (still present here) and relied on the hardware input AGC (`gain_control`, not ported) to hand
+it a hot, normalised input, so nothing bounded the gain relative to the input. Two switchable controls address that:
+- `wetcap` (0/1, **on by default**) with `wetcap_db` (0-24, default 3): holds the wet signal to at most that many dB above a slow
+  estimate of the input level. It only acts when the grains run hot (it changes nothing at ordinary settings), and the input estimate
+  has a long memory (about 10 s) and is held while `freeze` is on, so tails, feedback and frozen textures are not clamped just because
+  the live input went quiet. With `wetcap 0` the signal path is exactly the original.
+- `overlap` (0/1, **off by default**) with `overlap_amt` (0-1, default 1): stronger overlap scaling. Each grain is scaled by
+  `1/sqrt(grains playing)` in the original; this raises the exponent towards `1/(grains playing)`, which holds back grains that add
+  coherently. It changes the character at dense settings, which is why it is optional. `overlap_amt 0` is the original.
+
 ## Notes / differences from hardware
 - DSP runs at the media's codec rate (24/48/32/48 kHz) with a sinc resampler to/from the host rate.
 - No AGC/calibration/normalization probing/synth mode/buffer backup; `gain` + per-media clipping replace gain_control.

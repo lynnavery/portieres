@@ -347,6 +347,7 @@ void Engine::Process(const Params& p, const float* const* in, float* out_l,
       prm.monophonic_mode = false;
       prm.modulation = grain_split ? &gm : nullptr;
       prm.spread = Clamp(p.spread + phase_width, 0.0f, 1.0f);
+      prm.overlap = p.overlap ? Clamp(p.overlap_amt, 0.0f, 1.0f) : 0.0f;
       beads::ModulatedParameter d;
       d.base = Clamp(p.density + off[DEST_DENSITY], 0.0f, 1.0f);
       d.cv = in[IN_DENSITY_CV] ? cv_mean[4] : 0.0f;
@@ -356,6 +357,7 @@ void Engine::Process(const Params& p, const float* const* in, float* out_l,
       m.dry_wet = Clamp((p.dry_wet + off[DEST_DRYWET]) * 1.005f, 0.0f, 1.0f);
       m.reverb_amount = Clamp((p.reverb + off[DEST_REVERB]) * 1.005f, 0.0f, 1.0f);
       m.output_gate = p.gate_out != 0;
+      m.wet_cap_ratio = p.wetcap ? std::pow(10.0f, Clamp(p.wetcap_db, 0.0f, 24.0f) / 20.0f) : 0.0f;
 
       beads::SeedButtonState sb = p.seed_button == 2
           ? beads::SEED_BUTTON_STATE_LOCKED

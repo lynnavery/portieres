@@ -67,6 +67,9 @@ class Processor {
     float dry_wet;
     float reverb_amount;
     bool output_gate;
+    // Port addition: wet-path level cap. 0 = off (original behaviour, bit-identical). Otherwise
+    // the maximum amplitude ratio between the wet signal and a slow estimate of the input level.
+    float wet_cap_ratio = 0.0f;
   };
   
   void Init(uint8_t* buffers[], uint16_t* reverb_buffer);
@@ -207,7 +210,13 @@ class Processor {
 
   float dry_;
   float wet_;
-  
+
+  // Wet-path level cap state (see MixParameters::wet_cap_ratio).
+  float cap_in_smooth_ = 0.0f; // input power averaged over ~150 ms
+  float cap_in_pow_ = 0.0f;    // slow estimate of the input power (long memory, held while frozen)
+  float cap_wet_pow_ = 0.0f;   // smoothed power of the wet signal
+  float cap_gain_ = 1.0f;      // gain currently applied to the wet signal
+
   WowAndFlutter wow_and_flutter_;
   Reverb reverb_;
   Limiter pre_reverb_limiter_;
