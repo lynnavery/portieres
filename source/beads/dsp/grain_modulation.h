@@ -38,8 +38,10 @@ enum LfoShape {
   LFO_RANDOM_HOLD, LFO_RANDOM_SMOOTH, LFO_NUM_SHAPES
 };
 
-// +/-100% of a destination sweeps half its range either side of the base value.
-inline float ModHalfRange(int dest) { return dest == MOD_PITCH ? 24.0f : 0.5f; }
+// The range of each destination (pitch in semitones, everything else 0..1).
+inline float ModLo(int dest) { return dest == MOD_PITCH ? -24.0f : 0.0f; }
+inline float ModHi(int dest) { return dest == MOD_PITCH ? 24.0f : 1.0f; }
+inline float ModDefaultBase(int dest) { return dest == MOD_PITCH ? 0.0f : 0.5f; }
 
 // Deterministic value in [-1, 1) for (seed, cycle number).
 inline float ModHash(uint32_t seed, int64_t cycle) {
@@ -57,6 +59,7 @@ struct GrainModulation {
   uint8_t unipolar[kModLfos];
   uint32_t seed[kModLfos];
   float depth[MOD_NUM_DESTINATIONS][kModLfos];   // -1..1 (matrix percent / 100)
+  float base[MOD_NUM_DESTINATIONS];              // the knob values the modulation is relative to
 
   GrainModulation() {
     for (int i = 0; i < kModLfos; ++i) {
@@ -64,6 +67,7 @@ struct GrainModulation {
       seed[i] = 0x1234567u * uint32_t(i + 1);
       for (int d = 0; d < MOD_NUM_DESTINATIONS; ++d) depth[d][i] = 0.0f;
     }
+    for (int d = 0; d < MOD_NUM_DESTINATIONS; ++d) base[d] = ModDefaultBase(d);
   }
 
   // LFO i evaluated `offset` cycles away from its current phase.
@@ -89,13 +93,22 @@ struct GrainModulation {
   }
 
   // Modulation of `dest` (in the destination's own units) at stereo position u.
+  //
+  // The LFOs add up to m = sum(depth * lfo), roughly -1..+1, and a depth of 100% means the LFO's
+  // peaks reach the parameter's minimum and maximum wherever the knob sits: the positive half
+  // moves from the knob value towards the top of the range by m x (the room above it), the
+  // negative half towards the bottom by |m| x (the room below it). So 100% always sweeps
+  // the whole range (a knob at 0 swings 0..1, not 0..0.5), 50% gets half way to each end, and a
+  // knob in the middle behaves exactly as a symmetric +/- half-range sweep would.
   inline float Offset(int dest, float u) const {
     float sum = 0.0f;
     for (int i = 0; i < kModLfos; ++i) {
       const float d = depth[dest][i];
       if (d != 0.0f) sum += d * Lfo(i, double(u) * 0.5 * double(split[i]));
     }
-    return sum * ModHalfRange(dest);
+    const float lo = ModLo(dest), hi = ModHi(dest);
+    const float b = base[dest] < lo ? lo : (base[dest] > hi ? hi : base[dest]);
+    return sum >= 0.0f ? sum * (hi - b) : sum * (b - lo);
   }
 
   // What a grain at stereo position u adds on top of the block-level offset.

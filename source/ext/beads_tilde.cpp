@@ -203,7 +203,7 @@ void beads_assist(t_beads* x, void* b, long m, long a, char* s) {
       "(signal) Out L", "(signal) Out R / gate",
       "(signal) Grain trigger (1-sample impulse per grain)",
       "grain <time> <pitch st> <dur ms> <shape> <amp> <pan> <reverse>",
-      "lfo <1-4> <value at left edge> <value at right edge> <phase 0-1> (one per LFO, on `poll`)" };
+      "lfo <1-4> <value at left edge> <value at right edge> <phase 0-1> <speed in Hz> (one per LFO, on `poll`)" };
     strncpy_zero(s, out_names[a], 256);
   }
 }
@@ -273,20 +273,21 @@ void beads_amt(t_beads* x, t_symbol* s, long argc, t_atom* argv) {
   x->params.mod[dest][n - 1] = (float)pct;
 }
 
-// Refreshes the host tempo, then reports every LFO: lfo <n> <valueL> <valueR> <phase>
+// Refreshes the host tempo, then reports every LFO: lfo <n> <valueL> <valueR> <phase> <hz>
 void beads_poll(t_beads* x) {
   if (!x->engine) return;
   const double bpm = itm_gettempo((t_itm*)itm_getglobal());
   if (bpm > 0) x->host_tempo->store(bpm);
   for (int i = 0; i < kNumLfos; ++i) {
-    float vl, vr, ph;
-    x->engine->GetLfo(i, &vl, &vr, &ph);
-    t_atom a[4];
+    float vl, vr, ph, hz;
+    x->engine->GetLfo(i, &vl, &vr, &ph, &hz);
+    t_atom a[5];
     atom_setlong(a + 0, i + 1);
     atom_setfloat(a + 1, vl);
     atom_setfloat(a + 2, vr);
     atom_setfloat(a + 3, ph);
-    outlet_anything(x->lfo_out, gensym("lfo"), 4, a);
+    atom_setfloat(a + 4, hz);
+    outlet_anything(x->lfo_out, gensym("lfo"), 5, a);
   }
 }
 

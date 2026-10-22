@@ -69,7 +69,8 @@ struct Engine::Impl : public beads::GrainObserver {
   beads::GrainModulation gm;
   long last_reset[kNumLfos] = { 0, 0, 0, 0 };
   bool lfo_init = false;
-  std::atomic<float> ro_l[kNumLfos], ro_r[kNumLfos], ro_phase[kNumLfos];
+  std::atomic<float> ro_l[kNumLfos], ro_r[kNumLfos], ro_phase[kNumLfos], ro_hz[kNumLfos];
+  float cur_hz[kNumLfos] = { 1.0f, 1.0f, 1.0f, 1.0f };   // effective speed of each LFO, per block
 
   size_t ctl_avail() const { return ctl_w - ctl_r; }
 
@@ -107,6 +108,7 @@ Engine::Engine() : impl_(new Impl) {
     impl_->ro_l[i] = 0.0f;
     impl_->ro_r[i] = 0.0f;
     impl_->ro_phase[i] = 0.0f;
+    impl_->ro_hz[i] = 1.0f;
   }
   impl_->buffer1 = static_cast<uint8_t*>(calloc(512 * 1024, 1));
   impl_->buffer2 = static_cast<uint8_t*>(calloc(256 * 1024, 1));
@@ -176,17 +178,19 @@ bool Engine::HasGrains() const {
          s.grain_w.load(std::memory_order_acquire);
 }
 
-void Engine::GetLfo(int i, float* value_l, float* value_r, float* phase) const {
+void Engine::GetLfo(int i, float* value_l, float* value_r, float* phase, float* hz) const {
   const Impl& s = *impl_;
   if (i < 0 || i >= kNumLfos) {
     if (value_l) *value_l = 0.0f;
     if (value_r) *value_r = 0.0f;
     if (phase) *phase = 0.0f;
+    if (hz) *hz = 1.0f;
     return;
   }
   if (value_l) *value_l = s.ro_l[i].load(std::memory_order_relaxed);
   if (value_r) *value_r = s.ro_r[i].load(std::memory_order_relaxed);
   if (phase) *phase = s.ro_phase[i].load(std::memory_order_relaxed);
+  if (hz) *hz = s.ro_hz[i].load(std::memory_order_relaxed);
 }
 
 size_t Engine::PopGrains(GrainEvent* out, size_t max) {
@@ -308,6 +312,7 @@ void Engine::Process(const Params& p, const float* const* in, float* out_l,
         const float hz = lp.sync ? (bpm / 60.0f) / DivisionBeats(lp.div)
                                  : Clamp(lp.rate, 0.0f, 100.0f);
         gm.cycles[i] += double(hz) * block_seconds;
+        s.cur_hz[i] = hz;
         gm.shape[i] = uint8_t(lp.shape < 0 ? 0 : (lp.shape > 6 ? 6 : lp.shape));
         gm.unipolar[i] = lp.uni != 0;
         gm.split[i] = Clamp(lp.split_deg, 0.0f, 360.0f) / 360.0f;
@@ -315,6 +320,13 @@ void Engine::Process(const Params& p, const float* const* in, float* out_l,
       for (int dd = 0; dd < NUM_DESTS; ++dd)
         for (int i = 0; i < kNumLfos; ++i)
           gm.depth[dd][i] = Clamp(p.mod[dd][i] * 0.01f, -1.0f, 1.0f);
+
+      // The modulation is relative to where each knob sits: 100% means the LFO peaks reach the ends
+      // of the parameter's range (see GrainModulation::Offset).
+      gm.base[beads::MOD_TIME] = p.time;     gm.base[beads::MOD_SIZE] = p.size;
+      gm.base[beads::MOD_SHAPE] = p.shape;   gm.base[beads::MOD_PITCH] = p.pitch;
+      gm.base[beads::MOD_DENSITY] = p.density;   gm.base[beads::MOD_FEEDBACK] = p.feedback;
+      gm.base[beads::MOD_REVERB] = p.reverb;     gm.base[beads::MOD_DRYWET] = p.dry_wet;
 
       // Block level: every destination gets the LFOs at the centre phase.
       float off[NUM_DESTS];
@@ -389,6 +401,7 @@ void Engine::Process(const Params& p, const float* const* in, float* out_l,
         s.ro_r[i].store(s.gm.Lfo(i, +half), std::memory_order_relaxed);
         s.ro_phase[i].store(float(s.gm.cycles[i] - std::floor(s.gm.cycles[i])),
                             std::memory_order_relaxed);
+        s.ro_hz[i].store(s.cur_hz[i], std::memory_order_relaxed);
       }
     }
 

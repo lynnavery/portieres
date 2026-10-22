@@ -24,7 +24,7 @@ struct LfoParams {
   long div = 7;           // 0..17: 1/16T 1/16 1/16. ... 2/1T 2/1 2/1. (7 = 1/4)
   float split_deg = 0.0f; // stereo split: how far apart (degrees of the cycle)
                           // the left and right edges of the stereo field sample the LFO
-  long uni = 0;           // 1 = unipolar (0..1) instead of bipolar (-1..1)
+  long uni = 1;           // 1 = unipolar (0..1, the default and what the device uses), 0 = bipolar (-1..1)
   long reset = 0;         // a counter: any change restarts the cycle
 };
 
@@ -94,7 +94,9 @@ class Engine {
 
   // Latest LFO state for displays (any thread): the value seen by the left and
   // right edges of the stereo field, and the centre phase (0..1).
-  void GetLfo(int i, float* value_l, float* value_r, float* phase) const;
+  // `hz` (optional) is the LFO's effective speed in cycles per second: the Rate knob, or the tempo-
+  // synced rate, so a display can scale its waveform with it.
+  void GetLfo(int i, float* value_l, float* value_r, float* phase, float* hz = nullptr) const;
 
   double codec_rate() const;
   int latency_samples() const { return latency_; }

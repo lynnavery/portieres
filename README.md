@@ -21,9 +21,12 @@ Four LFOs run inside the external and are **sampled once per grain**, so grains 
 LFO values (like the attenuverters' random spread, but shaped by an LFO).
 - `lfo <1-4> <param> [value]` with `param` one of `shape` (0 sine, 1 triangle, 2 saw up, 3 saw down, 4 square, 5 random hold,
   6 random smooth), `rate` (Hz), `sync` (0/1), `div` (0-17: 1/16T 1/16 1/16. ... 2/1T 2/1 2/1., 7 = 1/4), `split` (degrees),
-  `uni` (0/1) and `reset` (restarts the cycle).
+  `uni` (1 = unipolar 0..1, the default and what the device uses; 0 = bipolar -1..1) and `reset` (restarts the cycle).
 - `amt <dest> <1-4> <percent>` is the modulation matrix: `dest` is `time`, `size`, `shape`, `pitch`, `density`, `feedback`,
-  `reverb` or `drywet`. +100% from a bipolar LFO sweeps half the destination's range either side of its knob value (pitch: +/-24 st).
+  `reverb` or `drywet`. **100% means the LFO's peaks reach the end of the parameter's range from wherever the knob sits**: the LFO
+  moves the value from the knob towards the top of the range (towards the bottom for a negative amount) by amount x the room
+  available, so 100% from a knob at 0 swings 0..1 and 50% gets half way. Pitch spans -24..+24 st. With a bipolar LFO the positive
+  half moves towards the top and the negative half towards the bottom, so a knob in the middle sweeps the whole range symmetrically.
 - **Stereo split**: each LFO's `split` is how far apart (in degrees of its cycle) the left and right edges of the stereo field sample it.
   A grain panned hard left sees the LFO `split/2` earlier, hard right `split/2` later. With `split 0` all grains see the same value.
   Time, pitch and shape are sampled per grain; size is drawn before the grain's pan exists, so it (and the block-rate
@@ -41,7 +44,8 @@ LFO values (like the attenuverters' random spread, but shaped by an LFO).
   long grains can be about 10 dB hotter than the input, as in the original Beads.
 - `tempo` (attribute, BPM; 0 = follow the host tempo) drives synced LFOs.
 - Send `poll` (about 30 times a second) to make the new fifth outlet report each LFO:
-  `lfo <n> <value at left edge> <value at right edge> <centre phase 0-1>`. `poll` also refreshes the host tempo.
+  `lfo <n> <value at left edge> <value at right edge> <centre phase 0-1> <speed in Hz>` (the speed is the Rate knob, or the
+  tempo-derived rate when synced; the display uses it to show one second of waveform per frame). `poll` also refreshes the host tempo.
 
 ## Level control: wet-path cap and overlap scaling (port additions)
 Overlapping grains of the same material add up: with long grains at either density extreme the wet path comes out 10-15 dB

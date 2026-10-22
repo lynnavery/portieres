@@ -11,7 +11,7 @@ using namespace beads_max;
 // ---- LFO modulation / spread tests --------------------------------------------------------
 namespace {
 
-struct Run { std::vector<GrainEvent> grains; float lfo_phase[kNumLfos], lfo_l[kNumLfos], lfo_r[kNumLfos]; };
+struct Run { std::vector<GrainEvent> grains; float lfo_phase[kNumLfos], lfo_l[kNumLfos], lfo_r[kNumLfos], lfo_hz[kNumLfos]; };
 
 // Runs a fresh engine with the random generator seeded, collecting grains after `skip` seconds.
 Run Go(Params p, double secs, double skip = 0.5, double sr = 48000.0, int vs = 64) {
@@ -27,7 +27,7 @@ Run Go(Params p, double secs, double skip = 0.5, double sr = 48000.0, int vs = 6
     while ((k = e.PopGrains(ev, 64)) > 0)
       if (n > sr * skip) r.grains.insert(r.grains.end(), ev, ev + k);
   }
-  for (int i = 0; i < kNumLfos; ++i) e.GetLfo(i, &r.lfo_l[i], &r.lfo_r[i], &r.lfo_phase[i]);
+  for (int i = 0; i < kNumLfos; ++i) e.GetLfo(i, &r.lfo_l[i], &r.lfo_r[i], &r.lfo_phase[i], &r.lfo_hz[i]);
   return r;
 }
 
@@ -132,6 +132,7 @@ int TestLevelControl() {
 int TestModulation() {
   int f = 0;
   Params base; base.density = 0.9f; base.size = 0.2f;
+  for (auto& l : base.lfo) l.uni = 0;          // these tests were written for a bipolar LFO; unipolar is the default
 
   // The LFO shapes themselves (pure maths).
   {
@@ -148,6 +149,54 @@ int TestModulation() {
     g.shape[0] = beads::LFO_RANDOM_HOLD; g.split[0] = 0.0f;
     f += Check(g.Lfo(0, 0.0) == g.Lfo(0, 0.4), "random hold is constant within a cycle");
     f += Check(g.Lfo(0, 0.0) != g.Lfo(0, 1.0), "random hold changes between cycles");
+  }
+
+  // 0. 100% means the LFO's peaks reach the ends of the parameter's range, from wherever the knob sits.
+  {
+    auto sweep = [](int dest, float base, float depth, bool uni, float* at_peak, float* at_trough) {
+      beads::GrainModulation g;
+      g.shape[0] = beads::LFO_SINE; g.unipolar[0] = uni; g.depth[dest][0] = depth; g.base[dest] = base;
+      g.cycles[0] = 0.25; *at_peak = base + g.Offset(dest, 0.0f);     // sine peak
+      g.cycles[0] = 0.75; *at_trough = base + g.Offset(dest, 0.0f);   // sine trough
+    };
+    float pk, tr;
+    sweep(beads::MOD_REVERB, 0.0f, 1.0f, false, &pk, &tr);
+    f += Check(std::fabs(pk - 1.0f) < 1e-5 && std::fabs(tr - 0.0f) < 1e-5, "knob at 0, LFO 100%: swings the whole 0..1 range (reaches 1.0)", pk, tr);
+    sweep(beads::MOD_TIME, 0.3f, 1.0f, false, &pk, &tr);
+    f += Check(std::fabs(pk - 1.0f) < 1e-5 && std::fabs(tr - 0.0f) < 1e-5, "knob at 0.3, LFO 100%: reaches both 0 and 1", pk, tr);
+    sweep(beads::MOD_TIME, 0.5f, 1.0f, false, &pk, &tr);
+    f += Check(std::fabs(pk - 1.0f) < 1e-5 && std::fabs(tr - 0.0f) < 1e-5, "knob at 0.5, LFO 100%: reaches both 0 and 1 (as before)", pk, tr);
+    sweep(beads::MOD_TIME, 0.2f, 0.5f, false, &pk, &tr);
+    f += Check(std::fabs(pk - 0.6f) < 1e-5 && std::fabs(tr - 0.1f) < 1e-5, "knob at 0.2, LFO 50%: half way to each end (0.6 and 0.1)", pk, tr);
+    sweep(beads::MOD_PITCH, 0.0f, 1.0f, false, &pk, &tr);
+    f += Check(std::fabs(pk - 24.0f) < 1e-4 && std::fabs(tr + 24.0f) < 1e-4, "pitch knob at 0, LFO 100%: +/-24 semitones", pk, tr);
+    sweep(beads::MOD_PITCH, 12.0f, 1.0f, false, &pk, &tr);
+    f += Check(std::fabs(pk - 24.0f) < 1e-4 && std::fabs(tr + 24.0f) < 1e-4, "pitch knob at +12, LFO 100%: still reaches both +24 and -24", pk, tr);
+    sweep(beads::MOD_REVERB, 0.0f, 1.0f, true, &pk, &tr);
+    f += Check(std::fabs(pk - 1.0f) < 1e-5 && std::fabs(tr - 0.0f) < 1e-5, "unipolar LFO from knob 0: peak reaches 1.0, the trough stays at the knob (0)", pk, tr);
+    sweep(beads::MOD_REVERB, 0.4f, 1.0f, true, &pk, &tr);
+    f += Check(std::fabs(pk - 1.0f) < 1e-5 && std::fabs(tr - 0.4f) < 1e-5, "unipolar LFO from knob 0.4: sweeps from the knob up to 1.0 (never below it)", pk, tr);
+    sweep(beads::MOD_REVERB, 0.4f, -1.0f, true, &pk, &tr);
+    f += Check(std::fabs(pk - 0.0f) < 1e-5 && std::fabs(tr - 0.4f) < 1e-5, "unipolar LFO, negative amount: sweeps from the knob down to 0", pk, tr);
+    sweep(beads::MOD_FEEDBACK, 0.7f, -1.0f, false, &pk, &tr);
+    f += Check(std::fabs(pk - 0.0f) < 1e-5 && std::fabs(tr - 1.0f) < 1e-5, "negative amount inverts and still reaches both ends", pk, tr);
+  }
+  // The device's default is a unipolar LFO: it moves the parameter from the knob up to the top of its range.
+  {
+    Params q; q.density = 0.9f; q.size = 0.2f; q.time = 0.1f; q.lfo[0].rate = 0.3f; q.mod[DEST_TIME][0] = 100.0f;
+    Run r = Go(q, 9.0, 0.5);
+    float lo = 1.0f, hi = 0.0f;
+    for (auto& g : r.grains) { lo = std::min(lo, g.time); hi = std::max(hi, g.time); }
+    f += Check(r.grains.size() > 30 && hi > 0.95f && lo > 0.08f, "engine default (unipolar): Time knob at 0.1, LFO 100%: grains go from the knob up to the top, never below",
+               lo, hi);
+  }
+  // Through the engine: a Time knob at 0.1 with a slow 100% LFO must send grains all the way up to 1 and down to 0.
+  {
+    Params p = base; p.time = 0.1f; p.lfo[0].rate = 0.3f; p.mod[DEST_TIME][0] = 100.0f;
+    Run r = Go(p, 9.0, 0.5);
+    float lo = 1.0f, hi = 0.0f;
+    for (auto& g : r.grains) { lo = std::min(lo, g.time); hi = std::max(hi, g.time); }
+    f += Check(r.grains.size() > 30 && hi > 0.95f && lo < 0.05f, "engine: Time knob at 0.1, LFO 100%: grains reach both ends of the buffer", lo, hi);
   }
 
   // 1. Nothing assigned: changing LFO settings must not touch the random sequence or any grain.
@@ -300,6 +349,16 @@ int TestModulation() {
       }
       return count;
     };
+    // the speed the display scales its waveform by: the knob in Hz mode, the tempo-derived rate when synced
+    {
+      Params h = base; h.lfo[0].rate = 2.5f; h.lfo[1].rate = 7.0f;
+      h.lfo[2].sync = 1; h.lfo[2].div = 7; h.lfo[3].sync = 1; h.lfo[3].div = 13; h.tempo = 90.0f;
+      Run rh = Go(h, 1.0, 0.5);
+      f += Check(std::fabs(rh.lfo_hz[0] - 2.5f) < 1e-4f && std::fabs(rh.lfo_hz[1] - 7.0f) < 1e-4f,
+                 "reported speed follows the Rate knob in Hz mode (2.5 and 7 Hz)", rh.lfo_hz[0], rh.lfo_hz[1]);
+      f += Check(std::fabs(rh.lfo_hz[2] - 1.5f) < 1e-4f && std::fabs(rh.lfo_hz[3] - 0.375f) < 1e-4f,
+                 "reported speed when synced at 90 BPM: 1/4 = 1.5 Hz, 1/1 = 0.375 Hz", rh.lfo_hz[2], rh.lfo_hz[3]);
+    }
     f += Check(wraps(7) == 4, "synced 1/4 at 120 BPM: 4 cycles in 2 s", wraps(7));
     f += Check(wraps(13) == 1, "synced 1/1 at 120 BPM: 1 cycle in 2 s", wraps(13));
     f += Check(wraps(4) == 8, "synced 1/8 at 120 BPM: 8 cycles in 2 s", wraps(4));
