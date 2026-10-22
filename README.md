@@ -24,7 +24,8 @@ shape, wave shape, steps, jitter, smooth, hold, depth and offset, a Free (Hz, x1
 - `lfo <1-4> <param> [value]` with `param` one of
   - `shape` 0 sine (starts at the top), 1 up, 2 down, 3 triangle, 4 square (low first), 5 random (new value each cycle), 6 bin (random 0/1),
     7 stray (two noise bursts under a Blackman window), 8 glider (glides between random values);
-  - `wave` -100..100, the wave-shape curve (an exponent up to 1/0.05, mirrored for negative values; sine, up, down, triangle and square only);
+  - `wave` -100..100, the wave-shape curve: it bends the phase (an exponent up to 1/0.05, mirrored for negative values) before the waveform
+    is drawn, so a square gets a pulse width; sine, up, down, triangle and square only;
   - `steps` 0 = off, 1..24 levels (not for square, random and bin);
   - `jitter` 0..100, a random wobble at 10 Hz added to the wave (up to +/-0.67); `smooth` 0..100, a slew of 0..200 ms (applies to jitter too);
   - `hold` 0/1, freeze the output while 1 (the value held is the smoothed one, before depth and offset);

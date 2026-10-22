@@ -64,7 +64,7 @@ inline float ModBlackman(float x) {
   return 0.42f - 0.5f * std::cos(6.2831853f * x) + 0.08f * std::cos(12.5663706f * x);
 }
 
-// The example's exponent curve: amount -1..1 (x0.95 at the extremes) bends the 0..1 wave.
+// The example's exponent curve: amount -1..1 (x0.95 at the extremes) bends a 0..1 phase.
 inline float ModCurve(float x, float amount) {
   if (amount == 0.0f) return x;
   const float a = std::fabs(amount) * 0.0095f * 100.0f;     // amount is the dial / 100, the device scales by 0.0095 per percent
@@ -131,10 +131,15 @@ struct GrainModulation {
   }
 
   // Shape, wave-shape curve and steps at phase x: what is left once the time-domain parts are taken out.
+  // As in the device, the curve bends the PHASE before the waveform is drawn (so a square gets a pulse
+  // width, a sine a skew), and steps quantise the result.
   inline float Shape(int i, double x) const {
-    float v = RawShape(i, x);
     const int sh = shape[i];
-    if (sh <= LFO_SQUARE && wave[i] != 0.0f) v = ModCurve(v, wave[i]);
+    if (sh <= LFO_SQUARE && wave[i] != 0.0f) {
+      const double fl = std::floor(x);
+      x = fl + double(ModCurve(float(x - fl), wave[i]));
+    }
+    float v = RawShape(i, x);
     if (steps[i] > 0 && sh != LFO_SQUARE && sh != LFO_RANDOM && sh != LFO_BIN) {
       const float n = float(steps[i]);
       v = std::floor(v * n + 0.5f) / n;

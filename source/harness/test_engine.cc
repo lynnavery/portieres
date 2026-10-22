@@ -174,7 +174,17 @@ int TestModulation() {
     f += Check(std::fabs(g.Lfo(0, 0.0) - std::pow(0.5f, 1.0f / (1.0f - 0.95f))) < 1e-5, "wave +100%: x^20 on the way up", g.Lfo(0, 0.0));
     g.wave[0] = -1.0f;
     f += Check(std::fabs(g.Lfo(0, 0.0) - (1.0f - std::pow(0.5f, 20.0f))) < 1e-5, "wave -100%: mirrored", g.Lfo(0, 0.0));
-    g.shape[0] = beads::LFO_RANDOM; const float rnd_flat = g.Lfo(0, 0.0); g.wave[0] = 0.0f;
+    // On a square the curve moves the edge (pulse width): the edge is where the bent phase reaches 0.5
+    g.shape[0] = beads::LFO_SQUARE; g.wave[0] = 0.5f;
+    g.cycles[0] = 0.6;  const float sq06 = g.Lfo(0, 0.0);
+    g.cycles[0] = 0.8;  const float sq08 = g.Lfo(0, 0.0);
+    g.wave[0] = 0.0f;
+    g.cycles[0] = 0.6;  const float sq06_flat = g.Lfo(0, 0.0);
+    f += Check(sq06 == 0.0f && sq08 == 1.0f && sq06_flat == 1.0f, "wave +50% on a square moves the edge from 0.5 to about 0.7 (pulse width)", sq06, sq08);
+    g.shape[0] = beads::LFO_SINE; g.wave[0] = 1.0f; g.cycles[0] = 0.5;
+    f += Check(std::fabs(g.Lfo(0, 0.0) - (std::cos(6.2831853f * std::pow(0.5f, 20.0f)) + 1.0f) * 0.5f) < 1e-4, "wave on a sine skews its phase", g.Lfo(0, 0.0));
+    g.wave[0] = 0.0f;
+    g.shape[0] = beads::LFO_RANDOM; const float rnd_flat = g.Lfo(0, 0.0);
     f += Check(rnd_flat == g.Lfo(0, 0.0), "the curve does not apply to random");
     // steps: 4 levels, not for square
     g.shape[0] = beads::LFO_UP; g.wave[0] = 0.0f; g.steps[0] = 4;
