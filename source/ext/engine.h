@@ -14,6 +14,27 @@ enum Input {
   IN_SEED, IN_FREEZE, NUM_INPUTS
 };
 
+// One of the four built-in LFOs. They are sampled per grain (see
+// beads/dsp/grain_modulation.h) and mixed into the destinations by Params::mod.
+struct LfoParams {
+  long shape = 0;         // 0 sine, 1 triangle, 2 saw up, 3 saw down, 4 square,
+                          // 5 random hold, 6 random smooth
+  float rate = 1.0f;      // Hz (when not synced)
+  long sync = 0;          // 1 = follow the tempo using `div`
+  long div = 7;           // 0..17: 1/16T 1/16 1/16. ... 2/1T 2/1 2/1. (7 = 1/4)
+  float split_deg = 0.0f; // stereo split: how far apart (degrees of the cycle)
+                          // the left and right edges of the stereo field sample the LFO
+  long uni = 0;           // 1 = unipolar (0..1) instead of bipolar (-1..1)
+  long reset = 0;         // a counter: any change restarts the cycle
+};
+
+// Modulation destinations, in the order of Params::mod rows.
+enum ModDest {
+  DEST_TIME, DEST_SIZE, DEST_SHAPE, DEST_PITCH,
+  DEST_DENSITY, DEST_FEEDBACK, DEST_REVERB, DEST_DRYWET, NUM_DESTS
+};
+const int kNumLfos = 4;
+
 struct Params {
   float time = 0.5f, time_amt = 0.0f;
   float size = 0.5f, size_amt = 0.0f;
@@ -25,6 +46,13 @@ struct Params {
   long seed_button = 0;  // 0 off, 1 on, 2 locked
   long freeze = 0;
   long gate_out = 0;
+
+  // LFO modulation.
+  LfoParams lfo[kNumLfos];
+  float mod[NUM_DESTS][kNumLfos] = {};  // matrix, percent (-100..100); +100% sweeps
+                                        // half the destination's range either side
+  float tempo = 120.0f;                 // BPM, for synced LFOs
+  float spread = 0.0f;                  // extra random pan width, 0..1 (0 = original Beads)
 };
 
 // One entry per grain started (granular mode; delay mode has taps, not grains).
@@ -56,6 +84,10 @@ class Engine {
   // Drains grain events (any thread; single consumer). Returns the count.
   size_t PopGrains(GrainEvent* out, size_t max);
   bool HasGrains() const;
+
+  // Latest LFO state for displays (any thread): the value seen by the left and
+  // right edges of the stereo field, and the centre phase (0..1).
+  void GetLfo(int i, float* value_l, float* value_r, float* phase) const;
 
   double codec_rate() const;
   int latency_samples() const { return latency_; }
