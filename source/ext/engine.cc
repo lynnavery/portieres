@@ -1,6 +1,8 @@
 #include "ext/engine.h"
 
 #include <algorithm>
+#include <array>
+#include <atomic>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -21,9 +23,12 @@ struct CtlFrame {
   float seed;
   float freeze;
 };
+
+const size_t kGrainRing = 1024;     // power of two
+const size_t kTrigHist = 16384;     // power of two, codec-rate flag history
 }  // namespace
 
-struct Engine::Impl {
+struct Engine::Impl : public beads::GrainObserver {
   beads::Processor processor;
   uint8_t* buffer1 = nullptr;
   uint8_t* buffer2 = nullptr;
@@ -48,6 +53,34 @@ struct Engine::Impl {
   stmlib::GateFlags previous_seed = stmlib::GATE_FLAG_LOW;
 
   size_t ctl_avail() const { return ctl_w - ctl_r; }
+
+  // Grain events: audio thread produces, PopGrains() consumes.
+  std::array<GrainEvent, kGrainRing> grains;
+  std::atomic<size_t> grain_w{0}, grain_r{0};
+  size_t grains_seen = 0;  // running count, used to flag codec blocks
+
+  void OnGrain(const beads::GrainEvent& e) override {
+    ++grains_seen;
+    const size_t w = grain_w.load(std::memory_order_relaxed);
+    if (w - grain_r.load(std::memory_order_acquire) >= kGrainRing) return;
+    GrainEvent& g = grains[w & (kGrainRing - 1)];
+    g.time = e.time;
+    g.pitch_ratio = e.pitch_ratio;
+    g.duration = e.duration;
+    g.shape = e.shape;
+    g.amplitude = e.amplitude;
+    g.pan = e.pan;
+    g.reverse = e.reverse;
+    grain_w.store(w + 1, std::memory_order_release);
+  }
+
+  // Codec-rate grain-start flags, kept in step with src_out so the impulse
+  // lines up with the audio. Not run through the resampler: a sinc would smear
+  // it.
+  std::vector<float> trig_hist = std::vector<float>(kTrigHist, 0.0f);
+  size_t trig_written = 0;
+  double trig_pos = 0.0;
+  size_t trig_last = 0;  // last codec index already emitted
 };
 
 Engine::Engine() : impl_(new Impl) {
@@ -57,6 +90,7 @@ Engine::Engine() : impl_(new Impl) {
   uint8_t* buffers[3] = { impl_->buffer1, impl_->buffer1 + 256 * 1024,
                           impl_->buffer2 };
   impl_->processor.Init(buffers, impl_->reverb_buffer);
+  impl_->processor.set_grain_observer(impl_.get());
 }
 
 Engine::~Engine() {
@@ -98,6 +132,12 @@ void Engine::Setup(double host_sr, int max_vector, int media, bool mono) {
   const size_t prime = size_t(std::ceil(max_vector * s.ctl_step)) +
                        2 * s.block + 8;
   for (size_t i = 0; i < prime; ++i) s.src_out.PushOne(0.0f, 0.0f);
+  std::fill(s.trig_hist.begin(), s.trig_hist.end(), 0.0f);
+  s.trig_written = prime;  // same priming as src_out
+  s.trig_pos = 0.0;
+  s.trig_last = 0;
+  s.grain_r.store(s.grain_w.load(std::memory_order_acquire),
+                  std::memory_order_release);
   s.primed = true;
   s.configured = true;
   latency_ = int(std::ceil((double(prime) / s.ctl_step) +
@@ -105,12 +145,29 @@ void Engine::Setup(double host_sr, int max_vector, int media, bool mono) {
                            s.src_out.latency_in_samples() / s.ctl_step));
 }
 
+bool Engine::HasGrains() const {
+  const Impl& s = *impl_;
+  return s.grain_r.load(std::memory_order_relaxed) !=
+         s.grain_w.load(std::memory_order_acquire);
+}
+
+size_t Engine::PopGrains(GrainEvent* out, size_t max) {
+  Impl& s = *impl_;
+  size_t r = s.grain_r.load(std::memory_order_relaxed);
+  const size_t w = s.grain_w.load(std::memory_order_acquire);
+  size_t k = 0;
+  while (r != w && k < max) out[k++] = s.grains[r++ & (kGrainRing - 1)];
+  s.grain_r.store(r, std::memory_order_release);
+  return k;
+}
+
 void Engine::Process(const Params& p, const float* const* in, float* out_l,
-                     float* out_r, size_t n) {
+                     float* out_r, size_t n, float* out_trig) {
   Impl& s = *impl_;
   if (!s.configured) {
     std::fill(out_l, out_l + n, 0.0f);
     std::fill(out_r, out_r + n, 0.0f);
+    if (out_trig) std::fill(out_trig, out_trig + n, 0.0f);
     return;
   }
 
@@ -217,8 +274,14 @@ void Engine::Process(const Params& p, const float* const* in, float* out_l,
           : (p.seed_button == 1 ? beads::SEED_BUTTON_STATE_ON
                                 : beads::SEED_BUTTON_STATE_OFF);
 
+      const size_t grains_before = s.grains_seen;
       s.processor.Process(sb, in[IN_SEED] ? seed : nullptr, freeze, d, prm, m,
                           in_frames, out_frames, b);
+      for (size_t i = 0; i < b; ++i) {
+        s.trig_hist[(s.trig_written + i) & (kTrigHist - 1)] =
+            (i == 0 && s.grains_seen != grains_before) ? 1.0f : 0.0f;
+      }
+      s.trig_written += b;
 
       for (size_t i = 0; i < b; ++i) {
         const float l = out_frames[i].l, r = out_frames[i].r;
@@ -231,6 +294,22 @@ void Engine::Process(const Params& p, const float* const* in, float* out_l,
     const size_t avail = std::min(s.src_out.Available(), m);
     if (avail) s.src_out.Pull(out_l + base, out_r + base, avail);
     for (size_t i = avail; i < m; ++i) out_l[base + i] = out_r[base + i] = 0.0f;
+
+    if (out_trig) {
+      // Walk the flag history at the same rate src_out walks its input; emit
+      // 1.0 once for each flagged codec sample passed.
+      for (size_t i = 0; i < avail; ++i) {
+        const size_t idx = size_t(s.trig_pos);
+        float v = 0.0f;
+        while (s.trig_last < idx) {
+          ++s.trig_last;
+          v = std::max(v, s.trig_hist[s.trig_last & (kTrigHist - 1)]);
+        }
+        out_trig[base + i] = v;
+        s.trig_pos += s.ctl_step;
+      }
+      for (size_t i = avail; i < m; ++i) out_trig[base + i] = 0.0f;
+    }
   }
 }
 

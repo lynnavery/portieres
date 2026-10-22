@@ -9,3 +9,7 @@ clang++ -isysroot "$SDK" -nostdinc++ -isystem "$SDK/usr/include/c++/v1" -std=c++
 # Engine-level test (resampling at several host rates)
 clang++ -isysroot "$SDK" -nostdinc++ -isystem "$SDK/usr/include/c++/v1" -std=c++17 -O2 -DTEST -I. -w harness/test_engine.cc ext/engine.cc $(echo $SRCS | tr ' ' '\n' | grep -v '^$' | tr '\n' ' ') -o /tmp/beads_engine_bin
 /tmp/beads_engine_bin
+# Same engine test under UBSan: arm64 returns 0 for integer divide by zero, x86_64 (Rosetta) traps with SIGFPE,
+# so this is what catches that class of bug on an arm64 machine.
+clang++ -isysroot "$SDK" -nostdinc++ -isystem "$SDK/usr/include/c++/v1" -std=c++17 -O1 -DTEST -I. -w -fsanitize=integer-divide-by-zero -fno-sanitize-recover=all harness/test_engine.cc ext/engine.cc $(echo $SRCS | tr ' ' '\n' | grep -v '^$' | tr '\n' ' ') -o /tmp/beads_engine_ubsan
+/tmp/beads_engine_ubsan | tail -1

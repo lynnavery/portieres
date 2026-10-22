@@ -72,6 +72,14 @@ class Processor {
   void Init(uint8_t* buffers[], uint16_t* reverb_buffer);
   void Configure(Media media, bool mono);
   
+  // Port addition: reports every grain start (granular mode only).
+  void set_grain_observer(GrainObserver* observer) {
+    processor_digital_.set_grain_observer(observer);
+    processor_vintage_digital_.set_grain_observer(observer);
+    processor_clean_tape_.set_grain_observer(observer);
+    processor_dirty_tape_.set_grain_observer(observer);
+  }
+
   inline Media media() const { return media_; }
   inline bool mono() const { return mono_; }
   

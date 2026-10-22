@@ -272,8 +272,9 @@ void DelayController::RenderInternal(
         const int ratio = i % NUM_RATIOS;
 
         if (new_head) {
-          const int slice_duration = int(
-              clock_.interval(interval) * tap_ratio[ratio]);
+          // Clamped: very fast seed clocks truncate this to 0 (divide by zero).
+          const int slice_duration = max(1, int(
+              clock_.interval(interval) * tap_ratio[ratio]));
           const int num_slices = max_delay_ / slice_duration;
           if (numerator_quantizer_[i].num_steps() != num_slices) {
             numerator_quantizer_[i].Init(
