@@ -139,11 +139,11 @@ int TestModulation() {
     g.shape[0] = beads::LFO_SINE; g.cycles[0] = 0.25;
     f += Check(std::fabs(g.Lfo(0, 0.0) - 1.0f) < 1e-5, "sine peaks at a quarter cycle", g.Lfo(0, 0.0));
     g.depth[beads::MOD_PITCH][0] = 1.0f;
-    f += Check(std::fabs(g.Offset(beads::MOD_PITCH, 0.0f) - 48.0f) < 1e-3, "+100% on pitch swings +/-48 semitones (one full 48 st range each way)", g.Offset(beads::MOD_PITCH, 0.0f));
+    f += Check(std::fabs(g.Offset(beads::MOD_PITCH, 0.0f) - 24.0f) < 1e-3, "+100% on pitch: the LFO peak is +24 st (half of the 48 st range) above the knob", g.Offset(beads::MOD_PITCH, 0.0f));
     f += Check(g.GrainDelta(beads::MOD_PITCH, 1.0f) == 0.0f, "split 0: a grain differs from the centre by exactly 0");
     g.split[0] = 0.5f;   // 180 degrees
     g.cycles[0] = 0.0;
-    f += Check(std::fabs(g.GrainDelta(beads::MOD_PITCH, 1.0f) - 48.0f * std::sin(6.2831853f * 0.25f)) < 1e-3, "split 180deg: hard right sees +90deg, hard left -90deg", g.GrainDelta(beads::MOD_PITCH, 1.0f));
+    f += Check(std::fabs(g.GrainDelta(beads::MOD_PITCH, 1.0f) - 24.0f * std::sin(6.2831853f * 0.25f)) < 1e-3, "split 180deg: hard right sees +90deg, hard left -90deg", g.GrainDelta(beads::MOD_PITCH, 1.0f));
     f += Check(std::fabs(g.GrainDelta(beads::MOD_PITCH, -1.0f) + g.GrainDelta(beads::MOD_PITCH, 1.0f)) < 1e-3, "left and right deltas are mirror images");
     g.shape[0] = beads::LFO_RANDOM_HOLD; g.split[0] = 0.0f;
     f += Check(g.Lfo(0, 0.0) == g.Lfo(0, 0.4), "random hold is constant within a cycle");
@@ -161,13 +161,13 @@ int TestModulation() {
     };
     float pk, tr;
     swing(beads::MOD_REVERB, 1.0f, false, &pk, &tr);
-    f += Check(std::fabs(pk - 1.0f) < 1e-5 && std::fabs(tr + 1.0f) < 1e-5, "+100%: swings +/-1 full knob turn around the knob (2 turns peak to peak)", pk, tr);
+    f += Check(std::fabs(pk - 0.5f) < 1e-5 && std::fabs(tr + 0.5f) < 1e-5, "+100%: swings +/-half a turn around the knob (the whole range peak to peak)", pk, tr);
     swing(beads::MOD_TIME, 0.5f, false, &pk, &tr);
-    f += Check(std::fabs(pk - 0.5f) < 1e-5 && std::fabs(tr + 0.5f) < 1e-5, "+50%: swings +/-half a knob turn", pk, tr);
+    f += Check(std::fabs(pk - 0.25f) < 1e-5 && std::fabs(tr + 0.25f) < 1e-5, "+50%: swings +/-a quarter of a turn (half the range peak to peak)", pk, tr);
     swing(beads::MOD_FEEDBACK, -1.0f, false, &pk, &tr);
-    f += Check(std::fabs(pk + 1.0f) < 1e-5 && std::fabs(tr - 1.0f) < 1e-5, "-100%: the same swing, upside down", pk, tr);
+    f += Check(std::fabs(pk + 0.5f) < 1e-5 && std::fabs(tr - 0.5f) < 1e-5, "-100%: the same swing, upside down", pk, tr);
     swing(beads::MOD_PITCH, 1.0f, false, &pk, &tr);
-    f += Check(std::fabs(pk - 48.0f) < 1e-4 && std::fabs(tr + 48.0f) < 1e-4, "pitch: 100% swings +/-48 semitones (one full range each way)", pk, tr);
+    f += Check(std::fabs(pk - 24.0f) < 1e-4 && std::fabs(tr + 24.0f) < 1e-4, "pitch: 100% swings +/-24 semitones (the whole -24..+24 range peak to peak)", pk, tr);
     swing(beads::MOD_REVERB, 1.0f, true, &pk, &tr);
     f += Check(std::fabs(pk - 1.0f) < 1e-5 && std::fabs(tr) < 1e-5, "unipolar LFO (optional): 0..+1 turn up from the knob", pk, tr);
   }
@@ -178,7 +178,7 @@ int TestModulation() {
     g.unipolar[beads::MOD_FEEDBACK][0] = 1;                       // reverb stays +/-, feedback is + only
     g.cycles[0] = 0.25; const float rv_pk = g.Offset(beads::MOD_REVERB, 0.0f), fb_pk = g.Offset(beads::MOD_FEEDBACK, 0.0f);
     g.cycles[0] = 0.75; const float rv_tr = g.Offset(beads::MOD_REVERB, 0.0f), fb_tr = g.Offset(beads::MOD_FEEDBACK, 0.0f);
-    f += Check(std::fabs(rv_pk - 1.0f) < 1e-5 && std::fabs(rv_tr + 1.0f) < 1e-5, "same LFO, cell A bipolar: swings -1..+1", rv_pk, rv_tr);
+    f += Check(std::fabs(rv_pk - 0.5f) < 1e-5 && std::fabs(rv_tr + 0.5f) < 1e-5, "same LFO, cell A bipolar: swings -0.5..+0.5", rv_pk, rv_tr);
     f += Check(std::fabs(fb_pk - 1.0f) < 1e-5 && std::fabs(fb_tr) < 1e-5, "same LFO, cell B unipolar: swings 0..+1", fb_pk, fb_tr);
     g.unipolar[beads::MOD_FEEDBACK][0] = 1; g.depth[beads::MOD_FEEDBACK][0] = -1.0f;
     g.cycles[0] = 0.25; const float neg_pk = g.Offset(beads::MOD_FEEDBACK, 0.0f);
@@ -194,8 +194,28 @@ int TestModulation() {
     float blo = 1, bhi = 0, ulo = 1, uhi = 0;
     for (auto& e : bi.grains) { blo = std::min(blo, e.time); bhi = std::max(bhi, e.time); }
     for (auto& e : un.grains) { ulo = std::min(ulo, e.time); uhi = std::max(uhi, e.time); }
-    f += Check(blo < 0.3f && bhi > 0.7f, "engine: bipolar cell swings the Time knob both ways", blo, bhi);
+    f += Check(blo < 0.32f && bhi > 0.68f && blo > 0.25f && bhi < 0.75f, "engine: bipolar cell at 40% swings Time +/-0.2 around the knob", blo, bhi);
     f += Check(ulo > 0.45f && uhi > 0.85f, "engine: unipolar cell only moves Time up from the knob", ulo, uhi);
+  }
+  {
+    Params q; q.density = 0.9f; q.size = 0.2f; q.time = 0.5f; q.lfo[0].rate = 0.3f; q.mod[DEST_TIME][0] = 100.0f;
+    Run r = Go(q, 9.0, 0.5);
+    float lo = 1, hi = 0;
+    for (auto& e : r.grains) { lo = std::min(lo, e.time); hi = std::max(hi, e.time); }
+    f += Check(lo < 0.05f && hi > 0.95f, "engine: Time knob centred, bipolar LFO 100% runs exactly from the bottom to the top of the range", lo, hi);
+    q.mod[DEST_TIME][0] = 50.0f;
+    r = Go(q, 9.0, 0.5);
+    lo = 1; hi = 0;
+    for (auto& e : r.grains) { lo = std::min(lo, e.time); hi = std::max(hi, e.time); }
+    f += Check(lo > 0.2f && lo < 0.3f && hi > 0.7f && hi < 0.8f, "engine: ...and 50% only half way to each end (0.25..0.75)", lo, hi);
+  }
+  {
+    // a Phase split adds a per-grain delta after the block-level clamp; the result must stay inside -24..+24 st
+    Params q; q.density = 0.9f; q.size = 0.2f; q.lfo[0].shape = 4; q.lfo[0].rate = 1.0f; q.lfo[0].split_deg = 90.0f; q.mod[DEST_PITCH][0] = 100.0f;
+    Run r = Go(q, 8.0, 0.5);
+    double mx = 0;
+    for (auto& e : r.grains) mx = std::max(mx, std::fabs(12.0 * std::log2((double)e.pitch_ratio)));
+    f += Check(r.grains.size() > 30 && mx < 24.01, "engine: square LFO on pitch with a Phase split stays inside +/-24 st", (float)mx);
   }
   // Through the engine: a Time knob at 0.1 with a slow 100% LFO must send grains all the way up to 1 and down to 0.
   {
@@ -203,7 +223,7 @@ int TestModulation() {
     Run r = Go(p, 9.0, 0.5);
     float lo = 1.0f, hi = 0.0f;
     for (auto& g : r.grains) { lo = std::min(lo, g.time); hi = std::max(hi, g.time); }
-    f += Check(r.grains.size() > 30 && hi > 0.95f && lo < 0.05f, "engine: Time knob at 0.1, LFO 100%: swings far enough to be clipped at both ends of the buffer", lo, hi);
+    f += Check(r.grains.size() > 30 && hi > 0.55f && hi < 0.65f && lo < 0.05f, "engine: Time knob at 0.1, bipolar LFO 100%: swings 0.1 +/-0.5, clipped at 0 below and reaching 0.6 above", lo, hi);
   }
 
   // 1. Nothing assigned: changing LFO settings must not touch the random sequence or any grain.

@@ -99,6 +99,7 @@ class DelayGranularPlayer : public GranularPlayer<DelayGrain, 32> {
       RandomizedParameter shape_p = p.shape;
       time_p.base += d_time;
       pitch_p.base += d_pitch;
+      if (p.modulation) pitch_p.base = pitch_p.base < -24.0f ? -24.0f : (pitch_p.base > 24.0f ? 24.0f : pitch_p.base);
       shape_p.base += d_shape;
 
       const float time = time_p.value();

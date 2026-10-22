@@ -94,19 +94,20 @@ struct GrainModulation {
 
   // Modulation of `dest` (in the destination's own units) at stereo position u.
   //
-  // The LFOs (0..1) are applied per matrix cell, and the amount is how far they travel in knob turns
-  // (x the whole range of the knob). A bipolar cell (+/-) uses 2*lfo-1, so the value swings around
-  // the knob, below it as well as above it: +100% is +/- one full turn (two turns peak to peak,
-  // clipped at the ends of the range), 50% is +/- half a turn. A unipolar cell (+) uses the LFO as
-  // it is, so the value only goes up from the knob and back down to it. A negative amount flips
-  // the direction in both cases. The cells of one destination add up.
+  // The LFOs (0..1) are applied per matrix cell, and 100% means the LFO travels the knob's whole range
+  // (x the amount). A bipolar cell (+/-) uses lfo - 0.5, so the value swings around the knob, below it as
+  // well as above it: with the knob in the middle +100% runs from the bottom to the top of the range
+  // (peak to peak = the whole range), +50% from a quarter to three quarters. A unipolar cell (+) uses
+  // the LFO as it is, so the value only goes up from the knob and comes back down to it, by up to
+  // amount x the range. A negative amount flips the direction in both cases, and the result is clipped
+  // at the ends of the range (so off-centre knobs clip). The cells of one destination add up.
   inline float Offset(int dest, float u) const {
     float sum = 0.0f;
     for (int i = 0; i < kModLfos; ++i) {
       const float d = depth[dest][i];
       if (d == 0.0f) continue;
       const float l = Lfo(i, double(u) * 0.5 * double(split[i]));         // 0..1
-      sum += d * (unipolar[dest][i] ? l : 2.0f * l - 1.0f);
+      sum += d * (unipolar[dest][i] ? l : l - 0.5f);
     }
     return sum * (ModHi(dest) - ModLo(dest));
   }

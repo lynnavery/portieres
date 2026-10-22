@@ -23,14 +23,15 @@ LFO values (like the attenuverters' random spread, but shaped by an LFO).
   6 random smooth), `rate` (Hz), `sync` (0/1), `div` (0-17: 1/16T 1/16 1/16. ... 2/1T 2/1 2/1., 7 = 1/4), `split` (degrees),
   and `reset` (restarts the cycle). `uni <0|1>` is the old per-LFO polarity switch; it now just sets the polarity of every cell of that LFO.
 - `amt <dest> <1-4> <percent>` is the modulation matrix: `dest` is `time`, `size`, `shape`, `pitch`, `density`, `feedback`,
-  `reverb` or `drywet`. **The knob is the centre of the swing and the amount is how far the LFO travels, in knob turns**: the LFO
-  (0..1, applied bipolar or unipolar per cell, see `pol`) moves the value by amount x the knob's whole range, and the result is clipped
-  at the ends of the range. So a bipolar +100% swings +/-1 full turn (2 turns peak to peak), +50% swings +/-half a turn, and a negative
-  amount flips the LFO upside down. Pitch's range is -24..+24 st (48), so +100% there is +/-48 st before clipping.
-- `pol <dest> <1-4> <0|1>` sets the polarity of one matrix cell: 1 = bipolar +/- (the default, as above), 0 = unipolar +, where the LFO
-  runs 0..1 so the value only moves up from the knob (down for a negative amount). The device has a +/- button beside every amount.
-  The LFOs themselves are always 0..1 (that is also what `poll` reports and the display draws); the cell turns that into a swing
-  around the knob (2*lfo-1) or an upward move from it (lfo).
+  `reverb` or `drywet`. **100% means the LFO travels the knob's whole range** (amount x the range, clipped at its ends). The LFO is
+  0..1 and each cell applies it either bipolar or unipolar (see `pol`):
+  bipolar (+/-, the default) swings around the knob, so with the knob in the middle +100% runs from the bottom to the top of the range
+  (peak to peak = the whole range) and +50% from a quarter to three quarters; unipolar (+) only goes up from the knob, by up to
+  amount x the range, and comes back to it. A negative amount flips the direction. Off-centre knobs clip at the ends. Pitch's range
+  is -24..+24 st (48), so bipolar +100% there is +/-24 st.
+- `pol <dest> <1-4> <0|1>` sets the polarity of one matrix cell: 1 = bipolar +/- (the default), 0 = unipolar +. The device has a +/-
+  button beside every amount. The LFOs themselves are always 0..1 (that is also what `poll` reports and the display draws); the
+  cell turns that into a swing around the knob (lfo - 0.5) or an upward move from it (lfo).
 - **Stereo split**: each LFO's `split` is how far apart (in degrees of its cycle) the left and right edges of the stereo field sample it.
   A grain panned hard left sees the LFO `split/2` earlier, hard right `split/2` later. With `split 0` all grains see the same value.
   Time, pitch and shape are sampled per grain; size is drawn before the grain's pan exists, so it (and the block-rate
