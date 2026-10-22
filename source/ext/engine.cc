@@ -314,12 +314,11 @@ void Engine::Process(const Params& p, const float* const* in, float* out_l,
         gm.cycles[i] += double(hz) * block_seconds;
         s.cur_hz[i] = hz;
         gm.shape[i] = uint8_t(lp.shape < 0 ? 0 : (lp.shape > 6 ? 6 : lp.shape));
-        gm.unipolar[i] = lp.uni != 0;
         gm.split[i] = Clamp(lp.split_deg, 0.0f, 360.0f) / 360.0f;
       }
       for (int dd = 0; dd < NUM_DESTS; ++dd)
         for (int i = 0; i < kNumLfos; ++i)
-          gm.depth[dd][i] = Clamp(p.mod[dd][i] * 0.01f, -1.0f, 1.0f);
+        { gm.depth[dd][i] = Clamp(p.mod[dd][i] * 0.01f, -1.0f, 1.0f); gm.unipolar[dd][i] = p.uni[dd][i] != 0; }
 
       // The modulation is relative to where each knob sits: 100% means the LFO peaks reach the ends
       // of the parameter's range (see GrainModulation::Offset).

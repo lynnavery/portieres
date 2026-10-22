@@ -24,7 +24,6 @@ struct LfoParams {
   long div = 7;           // 0..17: 1/16T 1/16 1/16. ... 2/1T 2/1 2/1. (7 = 1/4)
   float split_deg = 0.0f; // stereo split: how far apart (degrees of the cycle)
                           // the left and right edges of the stereo field sample the LFO
-  long uni = 0;           // 0 = bipolar (-1..1, the default and what the device uses), 1 = unipolar (0..1)
   long reset = 0;         // a counter: any change restarts the cycle
 };
 
@@ -49,6 +48,7 @@ struct Params {
 
   // LFO modulation.
   LfoParams lfo[kNumLfos];
+  long uni[NUM_DESTS][kNumLfos] = {};   // polarity of each matrix cell: 0 = bipolar +/- (default), 1 = unipolar +
   float mod[NUM_DESTS][kNumLfos] = {};  // matrix, percent (-100..100); +100% sweeps
                                         // half the destination's range either side
   float tempo = 120.0f;                 // BPM, for synced LFOs

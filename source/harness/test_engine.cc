@@ -155,7 +155,7 @@ int TestModulation() {
   {
     auto swing = [](int dest, float depth, bool uni, float* at_peak, float* at_trough) {
       beads::GrainModulation g;
-      g.shape[0] = beads::LFO_SINE; g.unipolar[0] = uni; g.depth[dest][0] = depth;
+      g.shape[0] = beads::LFO_SINE; g.unipolar[dest][0] = uni; g.depth[dest][0] = depth;
       g.cycles[0] = 0.25; *at_peak = g.Offset(dest, 0.0f);     // sine peak
       g.cycles[0] = 0.75; *at_trough = g.Offset(dest, 0.0f);   // sine trough
     };
@@ -170,6 +170,31 @@ int TestModulation() {
     f += Check(std::fabs(pk - 48.0f) < 1e-4 && std::fabs(tr + 48.0f) < 1e-4, "pitch: 100% swings +/-48 semitones (one full range each way)", pk, tr);
     swing(beads::MOD_REVERB, 1.0f, true, &pk, &tr);
     f += Check(std::fabs(pk - 1.0f) < 1e-5 && std::fabs(tr) < 1e-5, "unipolar LFO (optional): 0..+1 turn up from the knob", pk, tr);
+  }
+  // 0b. Polarity belongs to the matrix cell: the same LFO can drive one destination both ways and another upward only.
+  {
+    beads::GrainModulation g;
+    g.shape[0] = beads::LFO_SINE; g.depth[beads::MOD_REVERB][0] = 1.0f; g.depth[beads::MOD_FEEDBACK][0] = 1.0f;
+    g.unipolar[beads::MOD_FEEDBACK][0] = 1;                       // reverb stays +/-, feedback is + only
+    g.cycles[0] = 0.25; const float rv_pk = g.Offset(beads::MOD_REVERB, 0.0f), fb_pk = g.Offset(beads::MOD_FEEDBACK, 0.0f);
+    g.cycles[0] = 0.75; const float rv_tr = g.Offset(beads::MOD_REVERB, 0.0f), fb_tr = g.Offset(beads::MOD_FEEDBACK, 0.0f);
+    f += Check(std::fabs(rv_pk - 1.0f) < 1e-5 && std::fabs(rv_tr + 1.0f) < 1e-5, "same LFO, cell A bipolar: swings -1..+1", rv_pk, rv_tr);
+    f += Check(std::fabs(fb_pk - 1.0f) < 1e-5 && std::fabs(fb_tr) < 1e-5, "same LFO, cell B unipolar: swings 0..+1", fb_pk, fb_tr);
+    g.unipolar[beads::MOD_FEEDBACK][0] = 1; g.depth[beads::MOD_FEEDBACK][0] = -1.0f;
+    g.cycles[0] = 0.25; const float neg_pk = g.Offset(beads::MOD_FEEDBACK, 0.0f);
+    f += Check(std::fabs(neg_pk + 1.0f) < 1e-5, "unipolar with a negative amount goes down instead", neg_pk);
+    f += Check(std::fabs(g.Lfo(0, 0.0) - 1.0f) < 1e-5, "the LFO value itself (and the display readout) stays bipolar");
+  }
+  {
+    Params q; q.density = 0.9f; q.size = 0.2f; q.time = 0.5f; q.lfo[0].rate = 0.3f; q.mod[DEST_TIME][0] = 40.0f;
+    Run bi = Go(q, 9.0, 0.5);
+    q.uni[DEST_TIME][0] = 1;
+    Run un = Go(q, 9.0, 0.5);
+    float blo = 1, bhi = 0, ulo = 1, uhi = 0;
+    for (auto& e : bi.grains) { blo = std::min(blo, e.time); bhi = std::max(bhi, e.time); }
+    for (auto& e : un.grains) { ulo = std::min(ulo, e.time); uhi = std::max(uhi, e.time); }
+    f += Check(blo < 0.3f && bhi > 0.7f, "engine: bipolar cell swings the Time knob both ways", blo, bhi);
+    f += Check(ulo > 0.45f && uhi > 0.85f, "engine: unipolar cell only moves Time up from the knob", ulo, uhi);
   }
   // Through the engine: a Time knob at 0.1 with a slow 100% LFO must send grains all the way up to 1 and down to 0.
   {

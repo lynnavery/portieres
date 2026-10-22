@@ -48,6 +48,7 @@ void beads_reset(t_beads* x);
 void beads_drain(t_beads* x);
 void beads_lfo(t_beads* x, t_symbol* s, long argc, t_atom* argv);
 void beads_amt(t_beads* x, t_symbol* s, long argc, t_atom* argv);
+void beads_pol(t_beads* x, t_symbol* s, long argc, t_atom* argv);
 void beads_poll(t_beads* x);
 C74_EXPORT void ext_main(void* r);
 }
@@ -62,6 +63,7 @@ void ext_main(void* r) {
   class_addmethod(c, (method)beads_lfo, "lfo", A_GIMME, 0);
   // Matrix cell: amt <time|size|shape|pitch|density|feedback|reverb|drywet> <1-4> <percent>
   class_addmethod(c, (method)beads_amt, "amt", A_GIMME, 0);
+  class_addmethod(c, (method)beads_pol, "pol", A_GIMME, 0);
   // Refreshes the host tempo and reports every LFO on outlet 4
   class_addmethod(c, (method)beads_poll, "poll", 0);
 
@@ -247,7 +249,8 @@ void beads_lfo(t_beads* x, t_symbol* s, long argc, t_atom* argv) {
   else if (!strcmp(what, "sync")) l.sync = v != 0;
   else if (!strcmp(what, "div")) l.div = clampl((long)std::lround(v), 0, 17);
   else if (!strcmp(what, "split")) l.split_deg = (float)(v < 0 ? 0 : (v > 360 ? 360 : v));
-  else if (!strcmp(what, "uni")) l.uni = v != 0;
+  else if (!strcmp(what, "uni"))                    // legacy: polarity of every cell of this LFO
+    for (int d = 0; d < NUM_DESTS; ++d) x->params.uni[d][n - 1] = v != 0;
   else if (!strcmp(what, "reset")) l.reset += 1;    // any change restarts the cycle
   else object_error((t_object*)x, "lfo: unknown parameter '%s'", what);
 }
@@ -271,6 +274,25 @@ void beads_amt(t_beads* x, t_symbol* s, long argc, t_atom* argv) {
   double pct = atom_getfloat(argv + 2);
   pct = pct < -100 ? -100 : (pct > 100 ? 100 : pct);
   x->params.mod[dest][n - 1] = (float)pct;
+}
+
+// pol <dest> <1-4> <0|1>: polarity of one matrix cell, 1 = bipolar +/- (the default), 0 = unipolar +
+void beads_pol(t_beads* x, t_symbol* s, long argc, t_atom* argv) {
+  static const char* kDest[NUM_DESTS] = { "time", "size", "shape", "pitch",
+                                          "density", "feedback", "reverb", "drywet" };
+  if (argc < 3 || atom_gettype(argv) != A_SYM) {
+    object_error((t_object*)x, "pol: expected  pol <dest> <1-4> <0|1>");
+    return;
+  }
+  const char* name = atom_getsym(argv)->s_name;
+  int dest = -1;
+  for (int d = 0; d < NUM_DESTS; ++d) if (!strcmp(name, kDest[d])) dest = d;
+  const long n = atom_getlong(argv + 1);
+  if (dest < 0 || n < 1 || n > kNumLfos) {
+    object_error((t_object*)x, "pol: bad destination '%s' or LFO %ld", name, n);
+    return;
+  }
+  x->params.uni[dest][n - 1] = atom_getfloat(argv + 2) != 0 ? 0 : 1;
 }
 
 // Refreshes the host tempo, then reports every LFO: lfo <n> <valueL> <valueR> <phase> <hz>

@@ -56,16 +56,16 @@ struct GrainModulation {
   double cycles[kModLfos];     // phase accumulator in cycles (integer part = cycle number)
   float split[kModLfos];       // stereo split in cycles (phase knob / 360)
   uint8_t shape[kModLfos];
-  uint8_t unipolar[kModLfos];
+  uint8_t unipolar[MOD_NUM_DESTINATIONS][kModLfos];   // per matrix cell: 1 = LFO runs 0..1, 0 = -1..1 (default)
   uint32_t seed[kModLfos];
   float depth[MOD_NUM_DESTINATIONS][kModLfos];   // -1..1 (matrix percent / 100)
   float base[MOD_NUM_DESTINATIONS];              // the knob values the modulation is relative to
 
   GrainModulation() {
     for (int i = 0; i < kModLfos; ++i) {
-      cycles[i] = 0.0; split[i] = 0.0f; shape[i] = 0; unipolar[i] = 0;
+      cycles[i] = 0.0; split[i] = 0.0f; shape[i] = 0;
       seed[i] = 0x1234567u * uint32_t(i + 1);
-      for (int d = 0; d < MOD_NUM_DESTINATIONS; ++d) depth[d][i] = 0.0f;
+      for (int d = 0; d < MOD_NUM_DESTINATIONS; ++d) { depth[d][i] = 0.0f; unipolar[d][i] = 0; }
     }
     for (int d = 0; d < MOD_NUM_DESTINATIONS; ++d) base[d] = ModDefaultBase(d);
   }
@@ -89,7 +89,7 @@ struct GrainModulation {
         v = a + (b - a) * f * f * (3.0f - 2.0f * f);
       }
     }
-    return unipolar[i] ? 0.5f * v + 0.5f : v;
+    return v;      // always -1..1; a matrix cell may map it to 0..1 (see Offset)
   }
 
   // Modulation of `dest` (in the destination's own units) at stereo position u.
@@ -102,7 +102,9 @@ struct GrainModulation {
     float sum = 0.0f;
     for (int i = 0; i < kModLfos; ++i) {
       const float d = depth[dest][i];
-      if (d != 0.0f) sum += d * Lfo(i, double(u) * 0.5 * double(split[i]));
+      if (d == 0.0f) continue;
+      const float v = Lfo(i, double(u) * 0.5 * double(split[i]));
+      sum += d * (unipolar[dest][i] ? 0.5f * v + 0.5f : v);
     }
     return sum * (ModHi(dest) - ModLo(dest));
   }
