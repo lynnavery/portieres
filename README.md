@@ -21,7 +21,7 @@ Four LFOs run inside the external and are **sampled once per grain**, so grains 
 LFO values (like the attenuverters' random spread, but shaped by an LFO).
 - `lfo <1-4> <param> [value]` with `param` one of `shape` (0 sine, 1 triangle, 2 saw up, 3 saw down, 4 square, 5 random hold,
   6 random smooth), `rate` (Hz), `sync` (0/1), `div` (0-17: 1/16T 1/16 1/16. ... 2/1T 2/1 2/1., 7 = 1/4), `split` (degrees),
-  `uni` (0 = bipolar -1..1, the default and what the device uses; 1 = unipolar 0..1) and `reset` (restarts the cycle).
+  `uni` (0 = bipolar -1..1, the default; 1 = unipolar 0..1; the device has a Bi/Uni switch per LFO) and `reset` (restarts the cycle).
 - `amt <dest> <1-4> <percent>` is the modulation matrix: `dest` is `time`, `size`, `shape`, `pitch`, `density`, `feedback`,
   `reverb` or `drywet`. **The knob is the centre of the swing and the amount is how far the LFO travels, in knob turns**: the LFO
   (bipolar, -1..1) moves the value by amount x the knob's whole range, up and down around the knob, and the result is clipped
