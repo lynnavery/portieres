@@ -7,7 +7,7 @@ Max 9 external port of the Mutable Instruments **Beads** granular processor. DSP
 See Max Helper object
 
 ## Outlets
-`portieres~` has four outlets: **L**, **R / gate**, **grain trigger** (signal) and **grain messages**.
+`portieres~` has five outlets: **L**, **R / gate**, **grain trigger** (signal), **grain messages** and **LFO values** (see below).
 - *Grain trigger*: a 1-sample impulse (1.0) each time a grain starts. It is quantised to one codec block (about 0.25 ms) and
   lines up with the audio output; the impulse marks the trigger, and the audible grain follows 0 to 3 ms later depending on the media.
 - *Grain messages* (rightmost outlet): one `grain` message per grain, sent from the scheduler thread (so it is not sample accurate):
@@ -15,6 +15,25 @@ See Max Helper object
   where time is the read position 0..1, pitch is in semitones (always the magnitude, see reverse), shape 0..1, pan 0..1 (0.5 centre) and reverse is 0/1.
 - Only granular mode produces grains. In delay mode (size > 0.99) and in the density dead zone there are none.
 - Grains are generated while the **seed** gate is held, the seed button is on or locked (`seed 2`), or a seed signal is patched; with no seed there are no triggers.
+
+## LFOs, stereo split and spread (port addition)
+Four LFOs run inside the external and are **sampled once per grain**, so grains born at the same moment can see different
+LFO values (like the attenuverters' random spread, but shaped by an LFO).
+- `lfo <1-4> <param> [value]` with `param` one of `shape` (0 sine, 1 triangle, 2 saw up, 3 saw down, 4 square, 5 random hold,
+  6 random smooth), `rate` (Hz), `sync` (0/1), `div` (0-17: 1/16T 1/16 1/16. ... 2/1T 2/1 2/1., 7 = 1/4), `split` (degrees),
+  `uni` (0/1) and `reset` (restarts the cycle).
+- `amt <dest> <1-4> <percent>` is the modulation matrix: `dest` is `time`, `size`, `shape`, `pitch`, `density`, `feedback`,
+  `reverb` or `drywet`. +100% from a bipolar LFO sweeps half the destination's range either side of its knob value (pitch: +/-24 st).
+- **Stereo split**: each LFO's `split` is how far apart (in degrees of its cycle) the left and right edges of the stereo field sample it.
+  A grain panned hard left sees the LFO `split/2` earlier, hard right `split/2` later. With `split 0` all grains see the same value.
+  Time, pitch and shape are sampled per grain; size is drawn before the grain's pan exists, so it (and the block-rate
+  destinations density, feedback, reverb and dry/wet) follow the centre value.
+- Modulation never widens the pan. `spread` (attribute, 0-1) adds an independent random pan width: 0 is the original Beads
+  behaviour (and draws no extra random numbers), 1 spreads grains from hard left to hard right. Note that Beads' own pan width
+  grows with the number of overlapping grains, so modulating `size` or `density` changes it indirectly.
+- `tempo` (attribute, BPM; 0 = follow the host tempo) drives synced LFOs.
+- Send `poll` (about 30 times a second) to make the new fifth outlet report each LFO:
+  `lfo <n> <value at left edge> <value at right edge> <centre phase 0-1>`. `poll` also refreshes the host tempo.
 
 ## Notes / differences from hardware
 - DSP runs at the media's codec rate (24/48/32/48 kHz) with a sinc resampler to/from the host rate.
