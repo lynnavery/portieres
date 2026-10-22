@@ -73,6 +73,23 @@ int main() {
       fails += !ok;
     }
   }
+  // Regression: delay mode + freeze + a seed clock faster than 16 codec samples
+  // used to divide by zero in DelayController (SIGFPE under Rosetta).
+  for (int media = 0; media < 4; ++media) for (int period : { 4, 8, 15, 16, 40 }) {
+    const double sr = 48000; const int vs = 64;
+    Engine e; e.Setup(sr, vs, media, false);
+    Params p; p.size = 1.0f; p.density = 0.7f; p.freeze = 1; p.dry_wet = 1.0f;
+    std::vector<float> seed(vs), oL(vs), oR(vs);
+    bool nan = false; long n = 0;
+    for (int blk = 0; blk < int(sr * 3) / vs; ++blk) {
+      for (int i = 0; i < vs; ++i, ++n) seed[i] = (n % period == 0) ? 1.0f : 0.0f;
+      const float* in[NUM_INPUTS] = { 0,0,0,0,0,0,0, seed.data(), 0 };
+      e.Process(p, in, oL.data(), oR.data(), vs);
+      for (int i = 0; i < vs; ++i) if (!std::isfinite(oL[i])) nan = true;
+    }
+    printf("freeze+fast seed clock media=%d period=%d %s\n", media, period, nan ? "FAIL" : "OK");
+    fails += nan;
+  }
   printf("%d failures\n", fails);
   return fails != 0;
 }
