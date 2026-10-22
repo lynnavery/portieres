@@ -94,21 +94,17 @@ struct GrainModulation {
 
   // Modulation of `dest` (in the destination's own units) at stereo position u.
   //
-  // The LFOs add up to m = sum(depth * lfo), roughly -1..+1, and a depth of 100% means the LFO's
-  // peaks reach the parameter's minimum and maximum wherever the knob sits: the positive half
-  // moves from the knob value towards the top of the range by m x (the room above it), the
-  // negative half towards the bottom by |m| x (the room below it). So 100% always sweeps
-  // the whole range (a knob at 0 swings 0..1, not 0..0.5), 50% gets half way to each end, and a
-  // knob in the middle behaves exactly as a symmetric +/- half-range sweep would.
+  // The LFOs add up to m = sum(depth * lfo), roughly -1..+1. The knob is the centre of the swing and
+  // the amount is how far the LFO travels, in knob turns: m x the whole range of the knob, so
+  // +100% swings +/- one full turn around the knob (two turns peak to peak, clipped at the ends
+  // of the range), 50% swings +/- half a turn, and a negative amount flips the LFO upside down.
   inline float Offset(int dest, float u) const {
     float sum = 0.0f;
     for (int i = 0; i < kModLfos; ++i) {
       const float d = depth[dest][i];
       if (d != 0.0f) sum += d * Lfo(i, double(u) * 0.5 * double(split[i]));
     }
-    const float lo = ModLo(dest), hi = ModHi(dest);
-    const float b = base[dest] < lo ? lo : (base[dest] > hi ? hi : base[dest]);
-    return sum >= 0.0f ? sum * (hi - b) : sum * (b - lo);
+    return sum * (ModHi(dest) - ModLo(dest));
   }
 
   // What a grain at stereo position u adds on top of the block-level offset.

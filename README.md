@@ -23,10 +23,10 @@ LFO values (like the attenuverters' random spread, but shaped by an LFO).
   6 random smooth), `rate` (Hz), `sync` (0/1), `div` (0-17: 1/16T 1/16 1/16. ... 2/1T 2/1 2/1., 7 = 1/4), `split` (degrees),
   `uni` (0 = bipolar -1..1, the default and what the device uses; 1 = unipolar 0..1) and `reset` (restarts the cycle).
 - `amt <dest> <1-4> <percent>` is the modulation matrix: `dest` is `time`, `size`, `shape`, `pitch`, `density`, `feedback`,
-  `reverb` or `drywet`. **100% means the LFO's peaks reach the end of the parameter's range from wherever the knob sits**: the LFO
-  moves the value from the knob towards the top of the range with its positive half and towards the bottom with its negative half
-  (a negative amount swaps them), each by amount x the room available. The LFO is bipolar, so a knob in the middle sweeps the
-  whole range symmetrically and 50% gets half way. Pitch spans -24..+24 st.
+  `reverb` or `drywet`. **The knob is the centre of the swing and the amount is how far the LFO travels, in knob turns**: the LFO
+  (bipolar, -1..1) moves the value by amount x the knob's whole range, up and down around the knob, and the result is clipped
+  at the ends of the range. So +100% swings +/-1 full turn (2 turns peak to peak), +50% swings +/-half a turn, and a negative
+  amount flips the LFO upside down. Pitch's range is -24..+24 st (48), so +100% there is +/-48 st before clipping.
 - **Stereo split**: each LFO's `split` is how far apart (in degrees of its cycle) the left and right edges of the stereo field sample it.
   A grain panned hard left sees the LFO `split/2` earlier, hard right `split/2` later. With `split 0` all grains see the same value.
   Time, pitch and shape are sampled per grain; size is drawn before the grain's pan exists, so it (and the block-rate
