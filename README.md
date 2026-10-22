@@ -34,6 +34,11 @@ LFO values (like the attenuverters' random spread, but shaped by an LFO).
 - `spread` (attribute, 0-1) adds extra, independent random pan width on top: 0 is the original Beads behaviour (and draws no extra
   random numbers), 1 spreads grains from hard left to hard right. Note that Beads' own pan width grows with the number of
   overlapping grains, so modulating `size` or `density` changes it indirectly.
+- Widening the stereo field (Spread, or Phase) does not make the output louder: Beads' pan law folds the other input channel into
+  the side a grain is panned towards, which adds coherently for centred or mono-ish material and used to raise each channel
+  by roughly 1-2.5 dB. Grain amplitude is scaled back by the amount of extra width Spread adds (none at Spread 0, and little when
+  dense settings already pan wide). Note that the level still depends strongly on density and grain size - dense triggers with
+  long grains can be about 10 dB hotter than the input, as in the original Beads.
 - `tempo` (attribute, BPM; 0 = follow the host tempo) drives synced LFOs.
 - Send `poll` (about 30 times a second) to make the new fifth outlet report each LFO:
   `lfo <n> <value at left edge> <value at right edge> <centre phase 0-1>`. `poll` also refreshes the host tempo.

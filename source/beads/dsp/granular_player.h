@@ -143,6 +143,16 @@ class GranularPlayer {
       const float u = stmlib::Random::GetFloat();
       *pan = std::min(1.0f, std::max(0.0f, *pan + (u - 0.5f) * p.spread));
       if (stereo) *stereo = 2.0f * u - 1.0f;
+      // Level compensation. Beads' pan law folds the other input channel into the side a
+      // grain is panned towards, which adds coherently for centred / mono-ish material, so
+      // pushing grains out to the edges raises each channel's level (measured: about +1.4 dB
+      // at spread 0.25, +1.8 at 0.5, +2.4 at 1.0). Pull that back so widening the field
+      // does not make the output louder. Beads already widens the pan by itself when many
+      // grains overlap (pan_spread above), and then there is little extra width left to
+      // compensate, so scale by the part of the spread that is actually extra.
+      // Spread 0 is untouched.
+      const float extra = p.spread * (1.0f - std::min(1.0f, pan_spread));
+      *amplitude /= 1.0f + 0.31f * std::sqrt(extra);
     }
   }
   

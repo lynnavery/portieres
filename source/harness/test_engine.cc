@@ -40,6 +40,23 @@ double Corr(const std::vector<double>& a, const std::vector<double>& b) {
   return (saa > 0 && sbb > 0) ? sab / std::sqrt(saa * sbb) : 0.0;
 }
 
+// Mean output power (L and R together) relative to a 220 Hz mono input, wet only.
+double LevelDb(Params p) {
+  const double sr = 48000; const int vs = 64;
+  stmlib::Random::Seed(777);
+  Engine e; e.Setup(sr, vs, 3, false);
+  p.dry_wet = 1.0f; p.seed_button = 2;
+  std::vector<float> L(vs), oL(vs), oR(vs);
+  double ph = 0, in2 = 0, out2 = 0;
+  for (int t = 0; t < int(sr * 8); t += vs) {
+    for (int i = 0; i < vs; ++i) { L[i] = 0.1414f * sinf(ph); ph += 2 * M_PI * 220.0 / sr; }
+    const float* in[NUM_INPUTS] = { L.data(), L.data(), 0, 0, 0, 0, 0, 0, 0 };
+    e.Process(p, in, oL.data(), oR.data(), vs);
+    if (t > sr * 3) for (int i = 0; i < vs; ++i) { in2 += L[i] * L[i]; out2 += 0.5 * (oL[i] * oL[i] + oR[i] * oR[i]); }
+  }
+  return 10 * std::log10((out2 + 1e-20) / (in2 + 1e-20));
+}
+
 int Check(bool ok, const char* what, double a = 0, double b = 0) {
   printf("mod   %-62s %s  (%.3f, %.3f)\n", what, ok ? "OK" : "FAIL", a, b);
   return ok ? 0 : 1;
@@ -90,6 +107,25 @@ int TestModulation() {
     f += Check(s1 > s5 && s5 > s0, "pan spread grows with the Spread knob (std 0 < 0.5 < 1)", s0, s1);
     f += Check(s1 > 0.2 && lo(pans(r1)) < 0.1 && hi(pans(r1)) > 0.9, "Spread 1 reaches both edges of the stereo field", lo(pans(r1)), hi(pans(r1)));
     f += Check(s0 < 0.12, "Spread 0 stays close to the original Beads pan width", s0);
+  }
+
+  // 2b. Widening the stereo field must not make the output louder. (Beads' pan law folds the other
+  //     input channel into the side a grain is panned to, which used to add about +2.5 dB per channel.)
+  {
+    Params s0 = base, s1 = base, s5 = base;
+    s5.spread = 0.5f; s1.spread = 1.0f;
+    const double l0 = LevelDb(s0), l5 = LevelDb(s5), l1 = LevelDb(s1);
+    f += Check(std::fabs(l1 - l0) < 1.5 && std::fabs(l5 - l0) < 1.5, "Spread 0.5 / 1 keeps the level within 1.5 dB of Spread 0", l0, l1);
+    // Phase alone (a split LFO that is practically not modulating anything) widens the field too.
+    Params q0 = base, q1 = base;
+    q0.lfo[0].rate = 0.02f; q0.mod[DEST_TIME][0] = 1.0f;
+    q1 = q0; q1.lfo[0].split_deg = 180.0f;
+    const double p0 = LevelDb(q0), p1 = LevelDb(q1);
+    f += Check(std::fabs(p1 - p0) < 1.5, "Phase 180deg keeps the level within 1.5 dB of Phase 0", p0, p1);
+    // Dense settings: Beads already pans wide there, so Spread must not change the level much.
+    Params d0 = base, d1 = base;
+    d0.density = 1.0f; d1.density = 1.0f; d1.spread = 1.0f;
+    f += Check(std::fabs(LevelDb(d1) - LevelDb(d0)) < 1.5, "dense: Spread 1 stays within 1.5 dB of Spread 0", LevelDb(d0), LevelDb(d1));
   }
 
   // 3. A pitch LFO scatters grains (the "spread" of an LFO), none without it.
