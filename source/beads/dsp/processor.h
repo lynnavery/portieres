@@ -76,6 +76,10 @@ class Processor {
   void Configure(Media media, bool mono);
   
   // Port addition: reports every grain start (granular mode only).
+  // Port additions (see TriggerGenerator): which pulse of a divided group fires, and a count restart.
+  void set_seed_step(int step) { trigger_generator_.set_step(step); }
+  void resync_seed_count() { trigger_generator_.Resync(); }
+
   void set_grain_observer(GrainObserver* observer) {
     processor_digital_.set_grain_observer(observer);
     processor_vintage_digital_.set_grain_observer(observer);

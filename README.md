@@ -60,6 +60,11 @@ shape, wave shape, steps, jitter, smooth, hold, depth and offset, a Free (Hz, x1
   one (x2, x4, ...) right, and while the Time knob crosses between two multiples the two taps crossfade across the field. Frozen, the
   master and slave loops alternate sides. The level is compensated (within about 3 dB across Spread). Only the Spread knob does this: the
   LFO Phase split has no effect on taps, because it works by reading the LFO per grain.
+- **Seed step** (`seedstep`, 0-15, attribute) and `seedsync`: with the seed locked and a clock or trigger patched in (density left of
+  centre divides the pulses), the divider fires on every Nth pulse (N = 1, 2, 3, 4, 6, 8, 12 or 16). `seedstep` chooses *which*
+  pulse of each group of N fires: 0 is the first (the original behaviour), 1 the second, and so on; a step past N wraps round (step 6 on
+  divide-by-4 = step 2). The count starts at the first pulse after a pause of 4 s or more, or at the first pulse after `seedsync`; the
+  device sends `seedsync` when Live's transport starts, so the first group starts on the first pulse after play.
 - `spread` (attribute, 0-1) adds extra, independent random pan width on top: 0 is the original Beads behaviour (and draws no extra
   random numbers), 1 spreads grains from hard left to hard right. Note that Beads' own pan width grows with the number of
   overlapping grains, so modulating `size` or `density` changes it indirectly.

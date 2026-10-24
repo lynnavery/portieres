@@ -45,6 +45,7 @@ void beads_perform64(t_beads* x, t_object* dsp64, double** ins, long numins,
 t_max_err beads_media_set(t_beads* x, void* attr, long argc, t_atom* argv);
 t_max_err beads_mono_set(t_beads* x, void* attr, long argc, t_atom* argv);
 void beads_reset(t_beads* x);
+void beads_seedsync(t_beads* x);
 void beads_drain(t_beads* x);
 void beads_lfo(t_beads* x, t_symbol* s, long argc, t_atom* argv);
 void beads_amt(t_beads* x, t_symbol* s, long argc, t_atom* argv);
@@ -59,6 +60,7 @@ void ext_main(void* r) {
   class_addmethod(c, (method)beads_dsp64, "dsp64", A_CANT, 0);
   class_addmethod(c, (method)beads_assist, "assist", A_CANT, 0);
   class_addmethod(c, (method)beads_reset, "reset", 0);
+  class_addmethod(c, (method)beads_seedsync, "seedsync", 0);
   // LFO bank: lfo <1-4> <shape|rate|x10|sync|div|split|wave|steps|jitter|smooth|offset|depth|hold|reset> [value]
   class_addmethod(c, (method)beads_lfo, "lfo", A_GIMME, 0);
   // Matrix cell: amt <time|size|shape|pitch|density|feedback|reverb|drywet> <1-4> <percent>
@@ -102,6 +104,9 @@ void ext_main(void* r) {
   CLASS_ATTR_LABEL(c, "seed", 0, "Seed button (0 off, 1 on, 2 locked)");
   CLASS_ATTR_LONG(c, "freeze", 0, t_beads, params.freeze);
   CLASS_ATTR_STYLE_LABEL(c, "freeze", 0, "onoff", "Freeze");
+  CLASS_ATTR_LONG(c, "seedstep", 0, t_beads, params.seed_step);
+  CLASS_ATTR_FILTER_CLIP(c, "seedstep", 0, 15);
+  CLASS_ATTR_LABEL(c, "seedstep", 0, "Which pulse of each divided group the seed fires on (0 = first)");
   CLASS_ATTR_LONG(c, "gateout", 0, t_beads, params.gate_out);
   CLASS_ATTR_STYLE_LABEL(c, "gateout", 0, "onoff", "Right output = trigger gate");
 
@@ -234,6 +239,9 @@ t_max_err beads_mono_set(t_beads* x, void* attr, long argc, t_atom* argv) {
 }
 
 void beads_reset(t_beads* x) { x->reconfigure = 1; }
+
+// seedsync: restart the seed divider's pulse count (e.g. when the transport starts)
+void beads_seedsync(t_beads* x) { x->params.seed_sync += 1; }
 
 // lfo <1-4> <param> [value]
 void beads_lfo(t_beads* x, t_symbol* s, long argc, t_atom* argv) {

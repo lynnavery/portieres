@@ -189,6 +189,64 @@ int TestDelaySpread() {
   return f;
 }
 
+// The seed divider: which pulse of each group fires. A pulse train goes into the seed input (a pulse every 0.25 s,
+// density 0.2 = divide by 4); the grains that appear tell which pulses were accepted.
+std::vector<int> FiredPulses(long step, int resync_before_pulse, int pulses = 20, float density = 0.2f) {
+  const double sr = 48000; const int vs = 64, period = 12000, first = 24000;
+  stmlib::Random::Seed(5);
+  Engine e; e.Setup(sr, vs, 3, false);
+  Params p; p.density = density; p.size = 0.2f; p.seed_step = step; p.seed_button = 2;   // locked + a seed signal = the divider
+  std::vector<float> iL(vs, 0.0f), oL(vs), oR(vs), seed(vs, 0.0f);
+  const float* in[NUM_INPUTS] = { iL.data(), iL.data(), 0, 0, 0, 0, 0, seed.data(), 0 };
+  std::vector<int> fired;
+  GrainEvent ev[64];
+  for (int n = 0; n < first + period * pulses + period; n += vs) {
+    for (int i = 0; i < vs; ++i) {
+      const int t = n + i - first;
+      seed[i] = (t >= 0 && t % period == 0) ? 1.0f : 0.0f;
+    }
+    const int k = (n + vs - first) >= 0 ? (n + vs - 1 - first) / period : -1;      // the next pulse that may fall in this block
+    if (resync_before_pulse >= 0 && n >= first + period * resync_before_pulse - period / 2 && n < first + period * resync_before_pulse - period / 2 + vs)
+      p.seed_sync += 1;
+    (void)k;
+    e.Process(p, in, oL.data(), oR.data(), vs);
+    size_t c;
+    while ((c = e.PopGrains(ev, 64)) > 0)
+      for (size_t i = 0; i < c; ++i) {
+        const int idx = (n - first + period / 2) / period;
+        if (n >= first && (fired.empty() || fired.back() != idx)) fired.push_back(idx);
+      }
+  }
+  return fired;
+}
+
+int TestSeedStep() {
+  int f = 0;
+  auto all_mod = [](const std::vector<int>& v, int div, int want) {
+    if (v.size() < 4) return false;
+    for (int x : v) if (x % div != want) return false;
+    return true;
+  };
+  std::vector<int> s0 = FiredPulses(0, -1);
+  f += Check(all_mod(s0, 4, 0), "seed step 0 (the original): divide by 4 fires on pulses 0, 4, 8 ...", double(s0.size()), s0.empty() ? -1.0 : double(s0[0]));
+  for (int step = 1; step <= 3; ++step) {
+    std::vector<int> v = FiredPulses(step, -1);
+    f += Check(all_mod(v, 4, step), "seed step chooses the pulse of each group of 4 that fires (step 1, 2, 3)", double(step), double(v.size()));
+  }
+  std::vector<int> w = FiredPulses(6, -1);
+  f += Check(all_mod(w, 4, 2), "a step bigger than the division wraps round (step 6 on divide-by-4 = step 2)", double(w.size()));
+  // density 0.45 divides by 16: step 5 fires on every 16th pulse starting at pulse 5
+  std::vector<int> d16 = FiredPulses(5, -1, 60, 0.45f);
+  f += Check(!d16.empty() && d16[0] == 5 && all_mod(d16, 16, 5), "divide by 16, step 5: pulses 5, 21, 37, 53", d16.empty() ? -1.0 : double(d16[0]));
+  // seedsync restarts the count: the pulse right after it is the first of a group again
+  std::vector<int> r = FiredPulses(0, 6);
+  bool ok = !r.empty() && r[0] == 0;
+  for (int x : r) ok &= (x < 6) ? (x % 4 == 0) : ((x - 6) % 4 == 0);
+  f += Check(ok && std::find(r.begin(), r.end(), 6) != r.end() && std::find(r.begin(), r.end(), 8) == r.end(),
+             "seedsync before pulse 6: counting starts again there (fires 0, 4, then 6, 10, 14 ...)", double(r.size()));
+  return f;
+}
+
 int TestModulation() {
   int f = 0;
   Params base; base.density = 0.9f; base.size = 0.2f;
@@ -678,6 +736,7 @@ int main() {
   fails += TestModulation();
   fails += TestLevelControl();
   fails += TestDelaySpread();
+  fails += TestSeedStep();
   printf("%d failures\n", fails);
   return fails != 0;
 }

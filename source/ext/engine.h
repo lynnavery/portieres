@@ -52,6 +52,8 @@ struct Params {
   float feedback = 0.0f, dry_wet = 0.5f, reverb = 0.0f;
   float gain = 1.0f;
   long seed_button = 0;  // 0 off, 1 on, 2 locked
+  long seed_step = 0;    // 0..15: which pulse of each divided group fires (Trig / clocked modes, density left of centre)
+  long seed_sync = 0;    // a counter: any change restarts the pulse count at the next pulse
   long freeze = 0;
   long gate_out = 0;
 

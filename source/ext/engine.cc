@@ -76,6 +76,7 @@ struct Engine::Impl : public beads::GrainObserver {
   // the grain player; it also carries the running phases.
   beads::GrainModulation gm;
   long last_reset[kNumLfos] = { 0, 0, 0, 0 };
+  long last_seed_sync = 0;
   bool lfo_init = false;
   std::atomic<float> ro_l[kNumLfos], ro_r[kNumLfos], ro_phase[kNumLfos], ro_hz[kNumLfos];
   float cur_hz[kNumLfos] = { 1.0f, 1.0f, 1.0f, 1.0f };   // effective speed of each LFO, per block
@@ -320,7 +321,13 @@ void Engine::Process(const Params& p, const float* const* in, float* out_l,
       beads::GrainModulation& gm = s.gm;
       if (!s.lfo_init) {
         for (int i = 0; i < kNumLfos; ++i) s.last_reset[i] = p.lfo[i].reset;
+        s.last_seed_sync = p.seed_sync;
         s.lfo_init = true;
+      }
+      s.processor.set_seed_step(int(p.seed_step < 0 ? 0 : (p.seed_step > 15 ? 15 : p.seed_step)));
+      if (p.seed_sync != s.last_seed_sync) {
+        s.last_seed_sync = p.seed_sync;
+        s.processor.resync_seed_count();
       }
       const double block_seconds = double(b) / s.codec_sr;
       const float bpm = p.tempo > 1.0f ? p.tempo : 120.0f;

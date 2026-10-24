@@ -56,6 +56,12 @@ class TriggerGenerator {
   };
 
   void Init(float sample_rate);
+
+  // Port additions. `step` chooses which pulse of each group the divider fires on (0 = the first, the
+  // original behaviour; a step larger than the division wraps round). Resync() restarts the pulse count
+  // at the next pulse, so the first pulse after it is the "first" of a group again.
+  void set_step(int step) { step_ = step < 0 ? 0 : step; }
+  void Resync() { resync_pending_ = true; }
   
   void Render(
       SeedButtonState seed_button_state,
@@ -95,6 +101,8 @@ class TriggerGenerator {
   int audio_rate_interval_;
   
   bool accept_pulse_;
+  int step_ = 0;
+  bool resync_pending_ = false;
   int pulse_count_;
   int elapsed_since_last_pulse_;
 
