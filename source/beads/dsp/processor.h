@@ -70,6 +70,10 @@ class Processor {
     // Port addition: wet-path level cap. 0 = off (original behaviour, bit-identical). Otherwise
     // the maximum amplitude ratio between the wet signal and a slow estimate of the input level.
     float wet_cap_ratio = 0.0f;
+    // Port addition: where Dry/Wet sits. false (the original) mixes dry and wet first, then wobble (dirty tape),
+    // limiter and reverb act on the mix, dry included. true mixes AFTER them: wobble and reverb only touch the
+    // wet signal, the dry stays as it came in.
+    bool post_mix = false;
   };
   
   void Init(uint8_t* buffers[], uint16_t* reverb_buffer);

@@ -266,6 +266,78 @@ int TestSeedStep() {
   return f;
 }
 
+// Dry/Wet position: with `drywet_post` the wobble and the reverb only act on the wet signal.
+double ReverbTailDb(bool post, int media) {      // tail level relative to a tone burst, Dry/Wet fully dry, reverb at maximum
+  const double sr = 48000; const int vs = 64;
+  stmlib::Random::Seed(3);
+  Engine e; e.Setup(sr, vs, media, false);
+  Params p; p.size = 0.2f; p.density = 0.9f; p.dry_wet = 0.0f; p.reverb = 1.0f; p.wetcap = 0; p.drywet_post = post;
+  std::vector<float> iL(vs), oL(vs), oR(vs);
+  const float* in[NUM_INPUTS] = { iL.data(), iL.data(), 0, 0, 0, 0, 0, 0, 0 };
+  double tail = 0, n = 0, burst = 0, nb = 0;
+  for (int k = 0; k < int(sr * 4); k += vs) {
+    for (int i = 0; i < vs; ++i) iL[i] = (k + i < sr * 0.5) ? 0.3f * std::sin(2 * M_PI * 220.0 * (k + i) / sr) : 0.0f;
+    e.Process(p, in, oL.data(), oR.data(), vs);
+    for (int i = 0; i < vs; ++i) {
+      if (k > sr * 0.2 && k < sr * 0.45) { burst += oL[i] * oL[i]; nb += 1; }
+      if (k > sr * 1.2) { tail += oL[i] * oL[i]; n += 1; }
+    }
+  }
+  return 10 * std::log10(tail / n + 1e-20) - 10 * std::log10(burst / nb + 1e-20);
+}
+
+double DryPeriodSpread(bool post) {              // relative spread of the zero-crossing period of the fully dry output on dirty tape
+  const double sr = 48000; const int vs = 64;
+  stmlib::Random::Seed(3);
+  Engine e; e.Setup(sr, vs, 0, false);
+  Params p; p.size = 0.2f; p.density = 0.9f; p.dry_wet = 0.0f; p.reverb = 0.0f; p.wetcap = 0; p.drywet_post = post;
+  std::vector<float> iL(vs), oL(vs), oR(vs);
+  const float* in[NUM_INPUTS] = { iL.data(), iL.data(), 0, 0, 0, 0, 0, 0, 0 };
+  std::vector<double> periods; double last = -1; float prev = 0;
+  for (int k = 0; k < int(sr * 12); k += vs) {
+    for (int i = 0; i < vs; ++i) iL[i] = 0.3f * std::sin(2 * M_PI * 220.0 * (k + i) / sr);
+    e.Process(p, in, oL.data(), oR.data(), vs);
+    if (k > sr * 2) for (int i = 0; i < vs; ++i) {
+      if (prev < 0 && oL[i] >= 0) { const double t = k + i; if (last > 0) periods.push_back(t - last); last = t; }
+      prev = oL[i];
+    }
+  }
+  double m = 0; for (double x : periods) m += x; m /= periods.size();
+  double v = 0; for (double x : periods) v += (x - m) * (x - m);
+  return std::sqrt(v / periods.size()) / m;
+}
+
+int TestPostMix() {
+  int f = 0;
+  const double pre = ReverbTailDb(false, 3), post = ReverbTailDb(true, 3);
+  f += Check(pre > -20.0 && post < -80.0, "Dry/Wet fully dry, reverb up: the dry signal is reverberated before the mix (tail audible) and not after it (silent)", pre, post);
+  const double wob_pre = DryPeriodSpread(false), wob_post = DryPeriodSpread(true);
+  f += Check(wob_post < 0.7 * wob_pre, "dirty tape, fully dry: the dry tone wobbles before the mix and is clean after it", wob_pre, wob_post);
+  // Nothing to apply (no reverb, quiet signal): the two orders give the same sound on a clean medium.
+  {
+    auto run = [](bool post) {
+      std::vector<float> out;
+      const double sr = 48000; const int vs = 64;
+      stmlib::Random::Seed(3);
+      Engine e; e.Setup(sr, vs, 3, false);
+      Params p; p.size = 0.3f; p.density = 0.9f; p.dry_wet = 0.5f; p.reverb = 0.0f; p.wetcap = 0; p.drywet_post = post;
+      std::vector<float> iL(vs), oL(vs), oR(vs);
+      const float* in[NUM_INPUTS] = { iL.data(), iL.data(), 0, 0, 0, 0, 0, 0, 0 };
+      for (int k = 0; k < int(sr * 2); k += vs) {
+        for (int i = 0; i < vs; ++i) iL[i] = 0.05f * std::sin(2 * M_PI * 330.0 * (k + i) / sr);
+        e.Process(p, in, oL.data(), oR.data(), vs);
+        if (k > sr * 0.5) out.insert(out.end(), oL.begin(), oL.end());
+      }
+      return out;
+    };
+    std::vector<float> a = run(false), b = run(true);
+    double d = 0, e2 = 0;
+    for (size_t i = 0; i < a.size(); ++i) { d += (a[i] - b[i]) * (a[i] - b[i]); e2 += a[i] * a[i]; }
+    f += Check(10 * std::log10(d / (e2 + 1e-20) + 1e-20) < -40.0, "with reverb 0 on a quiet signal both orders sound the same (difference below -40 dB)", 10 * std::log10(d / (e2 + 1e-20) + 1e-20));
+  }
+  return f;
+}
+
 int TestModulation() {
   int f = 0;
   Params base; base.density = 0.9f; base.size = 0.2f;
@@ -756,6 +828,7 @@ int main() {
   fails += TestLevelControl();
   fails += TestDelaySpread();
   fails += TestSeedStep();
+  fails += TestPostMix();
   printf("%d failures\n", fails);
   return fails != 0;
 }

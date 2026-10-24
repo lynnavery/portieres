@@ -54,6 +54,10 @@ shape, wave shape, steps, jitter, smooth, hold, depth and offset, a Free (Hz, x1
 - **Phase alone creates the stereo split.** An LFO that feeds time, shape or pitch and has a `split` spreads the grains across the
   stereo field by itself (full width at 180 degrees, half at 90), and each grain's position in the field decides which LFO phase
   it samples: the grain at the far left always sees `-split/2`, the far right `+split/2`. With `split 0` an LFO never moves the pan.
+- **Dry/Wet position** (`drywetpost`, attribute, 0 or 1): where the Dry/Wet balance sits relative to the dirty-tape wobble, the
+  pre-reverb limiter and the reverb. 0 (the original) mixes dry and wet first, so wobble and reverb act on the mix, dry included. 1
+  mixes after them: only the wet signal is wobbled and reverberated, the dry stays exactly as it came in (and with Dry/Wet fully dry
+  there is no reverb tail at all). The Dry/Wet curve, Level Cap and everything before the mix are unchanged.
 - **Spread in delay mode** (Size past 0.99, where there are taps instead of grains): `spread` widens the stereo image of the taps by
   decorrelation. Taps have no pan to randomise, and at a steady Time setting only one tap sounds, so panning taps just parks the echo on
   one side. Instead the mid signal (L+R)/2 goes through two different chains of three allpass filters (3 to 8 ms, flat in level), one

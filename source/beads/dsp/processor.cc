@@ -239,6 +239,8 @@ void Processor::Process(
   const float gain_attack = 1.0f / (sr_cap * 0.03f);
   const float gain_release = 1.0f / (sr_cap * 0.4f);
 
+  const bool post_mix = mix_parameters.post_mix;
+  FloatFrame dry_only[size];
   for (size_t i = 0; i < size; ++i) {
     const float dry_gain = dry_modulation.Next();
     FloatFrame wet_signal = wet_modulation.Next() * out[i];
@@ -263,7 +265,12 @@ void Processor::Process(
     } else {
       cap_gain_ = 1.0f;
     }
-    out[i] = dry_gain * dry_signal[i] + wet_signal;
+    if (post_mix) {
+      dry_only[i] = dry_gain * dry_signal[i];
+      out[i] = wet_signal;           // wobble and reverb below see the wet signal alone
+    } else {
+      out[i] = dry_gain * dry_signal[i] + wet_signal;
+    }
   }
   
   // Wow and flutter simulation.
@@ -285,6 +292,10 @@ void Processor::Process(
   reverb_.set_lp(
       caveman ? 0.4f : (media_ == MEDIA_VINTAGE_DIGITAL ? 0.75f : 0.6f));
   reverb_.Process(out, size);
+
+  if (post_mix) {
+    for (size_t i = 0; i < size; ++i) out[i] = out[i] + dry_only[i];
+  }
   
   // Final clipping/limiting
   output_limiter_.Process(out, size);

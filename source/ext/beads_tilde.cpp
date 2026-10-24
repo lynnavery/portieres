@@ -107,6 +107,9 @@ void ext_main(void* r) {
   CLASS_ATTR_LONG(c, "seedstep", 0, t_beads, params.seed_step);
   CLASS_ATTR_FILTER_CLIP(c, "seedstep", 0, 15);
   CLASS_ATTR_LABEL(c, "seedstep", 0, "Which pulse of each divided group the seed fires on (0 = first)");
+  CLASS_ATTR_LONG(c, "drywetpost", 0, t_beads, params.drywet_post);
+  CLASS_ATTR_FILTER_CLIP(c, "drywetpost", 0, 1);
+  CLASS_ATTR_STYLE_LABEL(c, "drywetpost", 0, "onoff", "Dry/Wet after wobble and reverb (they only touch the wet signal)");
   CLASS_ATTR_LONG(c, "gateout", 0, t_beads, params.gate_out);
   CLASS_ATTR_STYLE_LABEL(c, "gateout", 0, "onoff", "Right output = trigger gate");
 
