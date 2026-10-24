@@ -327,7 +327,7 @@ void Engine::Process(const Params& p, const float* const* in, float* out_l,
       s.processor.set_seed_step(int(p.seed_step < 0 ? 0 : (p.seed_step > 15 ? 15 : p.seed_step)));
       if (p.seed_sync != s.last_seed_sync) {
         s.last_seed_sync = p.seed_sync;
-        s.processor.resync_seed_count();
+        s.processor.resync_seed_count(int(p.seed_sync_count));
       }
       const double block_seconds = double(b) / s.codec_sr;
       const float bpm = p.tempo > 1.0f ? p.tempo : 120.0f;

@@ -53,7 +53,8 @@ struct Params {
   float gain = 1.0f;
   long seed_button = 0;  // 0 off, 1 on, 2 locked
   long seed_step = 0;    // 0..15: which pulse of each divided group fires (Trig / clocked modes, density left of centre)
-  long seed_sync = 0;    // a counter: any change restarts the pulse count at the next pulse
+  long seed_sync = 0;    // a counter: any change sets the pulse count of the next pulse to seed_sync_count
+  long seed_sync_count = 1;  // 0 = the next pulse starts a group, 1 = the pulse that just went by did
   long freeze = 0;
   long gate_out = 0;
 

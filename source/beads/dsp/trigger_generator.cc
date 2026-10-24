@@ -149,10 +149,9 @@ void TriggerGenerator::RenderDivider(
     if (trigger) {
       // If we haven't seen a pulse for a long time (4s), resynchronize
       // the pulse counter with the first pulse.
-      if (elapsed_since_last_pulse_ >= divider_reset_interval_ || resync_pending_) {
+      if (elapsed_since_last_pulse_ >= divider_reset_interval_) {
         pulse_count_ = 0;
         phase_ = 0.0f;
-        resync_pending_ = false;
       }
       divider_reset_interval_ = max(
           default_reset_interval_,

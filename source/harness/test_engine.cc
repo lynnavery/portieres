@@ -191,7 +191,7 @@ int TestDelaySpread() {
 
 // The seed divider: which pulse of each group fires. A pulse train goes into the seed input (a pulse every 0.25 s,
 // density 0.2 = divide by 4); the grains that appear tell which pulses were accepted.
-std::vector<int> FiredPulses(long step, int resync_before_pulse, int pulses = 20, float density = 0.2f) {
+std::vector<int> FiredPulses(long step, int resync_before_pulse, int pulses = 20, float density = 0.2f, int sync_count = 1) {
   const double sr = 48000; const int vs = 64, period = 12000, first = 24000;
   stmlib::Random::Seed(5);
   Engine e; e.Setup(sr, vs, 3, false);
@@ -207,7 +207,7 @@ std::vector<int> FiredPulses(long step, int resync_before_pulse, int pulses = 20
     }
     const int k = (n + vs - first) >= 0 ? (n + vs - 1 - first) / period : -1;      // the next pulse that may fall in this block
     if (resync_before_pulse >= 0 && n >= first + period * resync_before_pulse - period / 2 && n < first + period * resync_before_pulse - period / 2 + vs)
-      p.seed_sync += 1;
+      { p.seed_sync_count = sync_count; p.seed_sync += 1; }
     (void)k;
     e.Process(p, in, oL.data(), oR.data(), vs);
     size_t c;
@@ -238,12 +238,18 @@ int TestSeedStep() {
   // density 0.45 divides by 16: step 5 fires on every 16th pulse starting at pulse 5
   std::vector<int> d16 = FiredPulses(5, -1, 60, 0.45f);
   f += Check(!d16.empty() && d16[0] == 5 && all_mod(d16, 16, 5), "divide by 16, step 5: pulses 5, 21, 37, 53", d16.empty() ? -1.0 : double(d16[0]));
-  // seedsync restarts the count: the pulse right after it is the first of a group again
-  std::vector<int> r = FiredPulses(0, 6);
-  bool ok = !r.empty() && r[0] == 0;
-  for (int x : r) ok &= (x < 6) ? (x % 4 == 0) : ((x - 6) % 4 == 0);
-  f += Check(ok && std::find(r.begin(), r.end(), 6) != r.end() && std::find(r.begin(), r.end(), 8) == r.end(),
-             "seedsync before pulse 6: counting starts again there (fires 0, 4, then 6, 10, 14 ...)", double(r.size()));
+  // seedsync sets the count of the NEXT pulse: 1 (the default the device uses) counts the pulse that has just gone by as
+  // the first of a group, so the next one is the second; 0 makes the next pulse the first.
+  for (int count : {1, 0}) {
+    std::vector<int> r = FiredPulses(0, 6, 20, 0.2f, count);
+    // before the sync: 0, 4 ; after it, the pulse 6 has index `count`, so the first firing is the pulse 6 + (4 - count) % 4
+    const int first_after = 6 + (4 - count) % 4;
+    bool ok = !r.empty() && r[0] == 0;
+    for (int x : r) ok &= (x < 6) ? (x % 4 == 0) : ((x - first_after) % 4 == 0);
+    f += Check(ok && std::find(r.begin(), r.end(), first_after) != r.end() && (count == 0 || std::find(r.begin(), r.end(), 6) == r.end()),
+               count == 1 ? "seedsync (count 1): the pulse before it was the first of a group, so the group's next firing is 3 pulses on (pulse 9)"
+                          : "seedsync 0: the next pulse starts a group (fires 6, 10, 14 ...)", double(r.size()), double(first_after));
+  }
   return f;
 }
 
