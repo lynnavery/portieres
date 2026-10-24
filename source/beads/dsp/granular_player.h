@@ -58,6 +58,9 @@ struct Parameters {
   // Extra random pan width, independent of grain count and randomness: 0 = the
   // original Beads behaviour, 1 = grains anywhere from hard left to hard right.
   float spread = 0.0f;
+  // Delay mode: how far apart the taps are panned. Every other tap goes towards hard left / hard
+  // right, from mono (the original) at 0 to fully panned at 1.
+  float tap_spread = 0.0f;
   // Stronger overlap scaling: 0 = original (each grain is scaled by 1/sqrt(grains playing)),
   // 1 = 1/(grains playing), which also holds back overlapping grains that add up coherently.
   float overlap = 0.0f;

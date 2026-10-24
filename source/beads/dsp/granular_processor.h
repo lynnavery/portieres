@@ -333,7 +333,8 @@ class GranularProcessor {
               *taps,
               speed_modulation.Next(),
               bandwidth_modulation.Next(),
-              out);
+              out,
+              parameters.tap_spread);
         }
       } else {
         stereo_delay_line_.Write(s, *freeze);
@@ -350,7 +351,8 @@ class GranularProcessor {
               *taps,
               speed_modulation.Next(),
               bandwidth_modulation.Next(),
-              out);
+              out,
+              parameters.tap_spread);
         }
       }
       

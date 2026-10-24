@@ -54,6 +54,12 @@ shape, wave shape, steps, jitter, smooth, hold, depth and offset, a Free (Hz, x1
 - **Phase alone creates the stereo split.** An LFO that feeds time, shape or pitch and has a `split` spreads the grains across the
   stereo field by itself (full width at 180 degrees, half at 90), and each grain's position in the field decides which LFO phase
   it samples: the grain at the far left always sees `-split/2`, the far right `+split/2`. With `split 0` an LFO never moves the pan.
+- **Spread in delay mode** (Size past 0.99, where there are taps instead of grains): `spread` pans every other tap away from the
+  centre, from mono at 0 (the original, byte for byte) to hard left / hard right at 1, using the same pan law as the grains. The even
+  taps go left and the odd ones right. Live, that means the echo at an odd multiple of the delay (x1, x3, ...) goes left and at an even
+  one (x2, x4, ...) right, and while the Time knob crosses between two multiples the two taps crossfade across the field. Frozen, the
+  master and slave loops alternate sides. The level is compensated (within about 3 dB across Spread). Only the Spread knob does this: the
+  LFO Phase split has no effect on taps, because it works by reading the LFO per grain.
 - `spread` (attribute, 0-1) adds extra, independent random pan width on top: 0 is the original Beads behaviour (and draws no extra
   random numbers), 1 spreads grains from hard left to hard right. Note that Beads' own pan width grows with the number of
   overlapping grains, so modulating `size` or `density` changes it indirectly.

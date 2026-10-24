@@ -409,6 +409,7 @@ void Engine::Process(const Params& p, const float* const* in, float* out_l,
       prm.monophonic_mode = false;
       prm.modulation = grain_split ? &gm : nullptr;
       prm.spread = Clamp(p.spread + phase_width, 0.0f, 1.0f);
+      prm.tap_spread = Clamp(p.spread, 0.0f, 1.0f);       // delay mode: the Spread knob only (no grains, no LFO split)
       prm.overlap = p.overlap ? Clamp(p.overlap_amt, 0.0f, 1.0f) : 0.0f;
       beads::ModulatedParameter d;
       d.base = Clamp(p.density + off[DEST_DENSITY], 0.0f, 1.0f);
