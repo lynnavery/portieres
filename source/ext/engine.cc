@@ -286,7 +286,7 @@ void Engine::Process(const Params& p, const float* const* in, float* out_l,
     // Run whole codec blocks.
     const size_t b = s.block;
     while (s.src_in.Available() >= b && s.ctl_avail() >= b) {
-      beads::FloatFrame in_frames[kMaxBlock], out_frames[kMaxBlock];
+      beads::FloatFrame in_frames[kMaxBlock], out_frames[kMaxBlock], clean_frames[kMaxBlock];
       float tl[kMaxBlock], tr[kMaxBlock];
       s.src_in.Pull(tl, tr, b);
 
@@ -308,6 +308,8 @@ void Engine::Process(const Params& p, const float* const* in, float* out_l,
       // hardware gain_control: soft clipping for dirty tape).
       for (size_t i = 0; i < b; ++i) {
         float l = tl[i] * p.gain, r = tr[i] * p.gain;
+        clean_frames[i].l = std::min(1.0f, std::max(-1.0f, l));     // the dry signal of the post-mix mode
+        clean_frames[i].r = std::min(1.0f, std::max(-1.0f, r));
         if (s.media == beads::Processor::MEDIA_DIRTY_TAPE) {
           const float bias = 0.05f;
           l = (1.0f - bias) * stmlib::SoftClip(l + bias) - bias;
@@ -428,6 +430,7 @@ void Engine::Process(const Params& p, const float* const* in, float* out_l,
       m.reverb_amount = Clamp((p.reverb + off[DEST_REVERB]) * 1.005f, 0.0f, 1.0f);
       m.output_gate = p.gate_out != 0;
       m.post_mix = p.drywet_post != 0;
+      m.clean_dry = clean_frames;
       m.wet_cap_ratio = p.wetcap ? std::pow(10.0f, Clamp(p.wetcap_db, 0.0f, 24.0f) / 20.0f) : 0.0f;
 
       beads::SeedButtonState sb = p.seed_button == 2

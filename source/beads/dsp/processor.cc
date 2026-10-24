@@ -207,6 +207,11 @@ void Processor::Process(
       break;
   }
   
+  // Port addition: in post-mix mode the dry signal is the clean input (no bit-crushing, no soft clip).
+  if (mix_parameters.post_mix && mix_parameters.clean_dry) {
+    for (size_t i = 0; i < size; ++i) dry_signal[i] = mix_parameters.clean_dry[i];
+  }
+
   // Fade-out / Fade-in the dry signal when switching between granular and
   // Delay mode.
   const float wet_fade = SmoothStep(

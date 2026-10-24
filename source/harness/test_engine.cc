@@ -307,10 +307,38 @@ double DryPeriodSpread(bool post) {              // relative spread of the zero-
   return std::sqrt(v / periods.size()) / m;
 }
 
+// Residual of a loud 220 Hz tone after removing its best-fit fundamental, in dB relative to the output (a measure of
+// distortion + noise), on dirty tape, Dry/Wet fully dry.
+double DryDistortionDb(bool post) {
+  const double sr = 48000; const int vs = 64;
+  stmlib::Random::Seed(3);
+  Engine e; e.Setup(sr, vs, 0, false);
+  Params p; p.size = 0.2f; p.density = 0.9f; p.dry_wet = 0.0f; p.reverb = 0.0f; p.wetcap = 0; p.drywet_post = post;
+  std::vector<float> iL(vs), oL(vs), oR(vs);
+  const float* in[NUM_INPUTS] = { iL.data(), iL.data(), 0, 0, 0, 0, 0, 0, 0 };
+  double sc = 0, ss = 0, scc = 0, sss = 0, scs = 0, syc = 0, sys = 0, syy = 0, n = 0;
+  for (int k = 0; k < int(sr * 6); k += vs) {
+    for (int i = 0; i < vs; ++i) iL[i] = 0.9f * std::sin(2 * M_PI * 220.0 * (k + i) / sr);
+    e.Process(p, in, oL.data(), oR.data(), vs);
+    if (k > sr * 2) for (int i = 0; i < vs; ++i) {
+      const double w = 2 * M_PI * 220.0 * (k + i) / sr, c = std::cos(w), s = std::sin(w), y = oL[i];
+      scc += c * c; sss += s * s; scs += c * s; syc += y * c; sys += y * s; syy += y * y; n += 1;
+    }
+  }
+  const double det = scc * sss - scs * scs;
+  const double a = (syc * sss - sys * scs) / det, b = (sys * scc - syc * scs) / det;
+  const double fit = a * syc + b * sys;                      // energy captured by the fundamental
+  return 10 * std::log10(std::max(syy - fit, 1e-20) / syy);
+}
+
 int TestPostMix() {
   int f = 0;
   const double pre = ReverbTailDb(false, 3), post = ReverbTailDb(true, 3);
   f += Check(pre > -20.0 && post < -80.0, "Dry/Wet fully dry, reverb up: the dry signal is reverberated before the mix (tail audible) and not after it (silent)", pre, post);
+  const double dist_pre = DryDistortionDb(false), dist_post = DryDistortionDb(true);
+  f += Check(dist_post < dist_pre - 15.0 && dist_post < -40.0, "dirty tape, fully dry, loud tone: the dry is bit-crushed and soft-clipped before the mix, clean after it", dist_pre, dist_post);
+  const double tail0 = ReverbTailDb(true, 0);
+  f += Check(tail0 < -80.0, "dirty tape, fully dry, post-mix: silence stays silent (no soft-clip offset, no reverb tail)", tail0);
   const double wob_pre = DryPeriodSpread(false), wob_post = DryPeriodSpread(true);
   f += Check(wob_post < 0.7 * wob_pre, "dirty tape, fully dry: the dry tone wobbles before the mix and is clean after it", wob_pre, wob_post);
   // Nothing to apply (no reverb, quiet signal): the two orders give the same sound on a clean medium.

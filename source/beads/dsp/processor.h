@@ -72,8 +72,10 @@ class Processor {
     float wet_cap_ratio = 0.0f;
     // Port addition: where Dry/Wet sits. false (the original) mixes dry and wet first, then wobble (dirty tape),
     // limiter and reverb act on the mix, dry included. true mixes AFTER them: wobble and reverb only touch the
-    // wet signal, the dry stays as it came in.
+    // wet signal, the dry stays as it came in. With `clean_dry` (the input before the soft clip) the dry also skips the
+    // bit-crushing of the medium (8-bit mu-law, 12-bit), so it really is unaffected.
     bool post_mix = false;
+    const FloatFrame* clean_dry = nullptr;
   };
   
   void Init(uint8_t* buffers[], uint16_t* reverb_buffer);
