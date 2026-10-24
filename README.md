@@ -54,12 +54,14 @@ shape, wave shape, steps, jitter, smooth, hold, depth and offset, a Free (Hz, x1
 - **Phase alone creates the stereo split.** An LFO that feeds time, shape or pitch and has a `split` spreads the grains across the
   stereo field by itself (full width at 180 degrees, half at 90), and each grain's position in the field decides which LFO phase
   it samples: the grain at the far left always sees `-split/2`, the far right `+split/2`. With `split 0` an LFO never moves the pan.
-- **Spread in delay mode** (Size past 0.99, where there are taps instead of grains): `spread` pans every other tap away from the
-  centre, from mono at 0 (the original, byte for byte) to hard left / hard right at 1, using the same pan law as the grains. The even
-  taps go left and the odd ones right. Live, that means the echo at an odd multiple of the delay (x1, x3, ...) goes left and at an even
-  one (x2, x4, ...) right, and while the Time knob crosses between two multiples the two taps crossfade across the field. Frozen, the
-  master and slave loops alternate sides. The level is compensated (within about 3 dB across Spread). Only the Spread knob does this: the
-  LFO Phase split has no effect on taps, because it works by reading the LFO per grain.
+- **Spread in delay mode** (Size past 0.99, where there are taps instead of grains): `spread` widens the stereo image of the taps by
+  decorrelation. Taps have no pan to randomise, and at a steady Time setting only one tap sounds, so panning taps just parks the echo on
+  one side. Instead the mid signal (L+R)/2 goes through two different chains of three allpass filters (3 to 8 ms, flat in level), one
+  per channel, and Spread blends each channel from the plain signal (0, the original, byte for byte) to its own phase-scrambled copy
+  (1). At 1 a mono echo comes out as two uncorrelated copies at the same level on both sides (correlation about 0), so nothing leans
+  left or right and it does not change when the Time multiplier crosses a whole number. The side signal (L-R)/2 is kept, so a stereo
+  source stays itself and gets extra width on top. The level is compensated; full Spread keeps each channel's level exactly. Only the
+  Spread knob does this: the LFO Phase split has no effect on taps, because it works by reading the LFO per grain.
 - **Seed step** (`seedstep`, 0-15, attribute) and `seedsync`: with the seed locked and a clock or trigger patched in (density left of
   centre divides the pulses), the divider fires on every Nth pulse (N = 1, 2, 3, 4, 6, 8, 12 or 16). `seedstep` chooses *which*
   pulse of each group of N fires: 0 is the first (the original behaviour), 1 the second, and so on; a step past N wraps round (step 6 on

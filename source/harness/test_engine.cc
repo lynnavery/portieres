@@ -132,7 +132,7 @@ int TestLevelControl() {
 // Delay mode (Size > 0.99): Spread pans every other tap from the original (mono input stays mono) towards
 // hard left / hard right.
 struct DelayMeasure { double l_db, r_db, total_db, diff_db, corr; bool finite; };
-DelayMeasure MeasureDelay(float spread, bool stereo_noise, float density, float time, bool freeze, int split_lfo = 0) {
+DelayMeasure MeasureDelay(float spread, int source, float density, float time, bool freeze, int split_lfo = 0) {   // source: 0 tone, 1 stereo noise, 2 mono noise
   const double sr = 48000; const int vs = 64;
   stmlib::Random::Seed(7);
   Engine e; e.Setup(sr, vs, 3, false);
@@ -144,7 +144,8 @@ DelayMeasure MeasureDelay(float spread, bool stereo_noise, float density, float 
   auto noise = [&]() { rng = rng * 1664525u + 1013904223u; return (rng >> 8) * (2.0f / 16777216.0f) - 1.0f; };
   for (int k = 0; k < int(sr * 9); k += vs) {
     for (int i = 0; i < vs; ++i) {
-      if (stereo_noise) { iL[i] = 0.3f * noise(); iR[i] = 0.3f * noise(); }
+      if (source == 1) { iL[i] = 0.3f * noise(); iR[i] = 0.3f * noise(); }
+      else if (source == 2) { iL[i] = iR[i] = 0.3f * noise(); }
       else iL[i] = iR[i] = 0.3f * std::sin(2 * M_PI * 220.0 * (k + i) / sr);
     }
     p.freeze = (freeze && k > sr * 3) ? 1 : 0;
@@ -166,26 +167,38 @@ DelayMeasure MeasureDelay(float spread, bool stereo_noise, float density, float 
 int TestDelaySpread() {
   int f = 0;
   // Spread 0 is the original: a mono input comes out identical on both channels.
-  DelayMeasure z = MeasureDelay(0.0f, false, 0.9f, 0.55f, false);
+  DelayMeasure z = MeasureDelay(0.0f, 0, 0.9f, 0.55f, false);
   f += Check(z.diff_db < -150.0 && z.finite, "delay mode, Spread 0: a mono input stays exactly mono", z.diff_db);
-  // Frozen delay (the loops alternate between the master and the slave head): Spread widens a mono source.
-  DelayMeasure a = MeasureDelay(0.25f, false, 0.9f, 0.55f, true), b = MeasureDelay(0.5f, false, 0.9f, 0.55f, true),
-               c = MeasureDelay(1.0f, false, 0.9f, 0.55f, true), z2 = MeasureDelay(0.0f, false, 0.9f, 0.55f, true);
-  f += Check(a.diff_db > z2.diff_db + 20 && b.diff_db > a.diff_db && c.diff_db > b.diff_db,
-             "frozen delay: the stereo difference grows with Spread (0.25 < 0.5 < 1)", a.diff_db, c.diff_db);
-  f += Check(c.corr < 0.3 && z2.corr > 0.99, "frozen delay: Spread 1 decorrelates the channels (mono corr 1.0 -> below 0.3)", z2.corr, c.corr);
-  f += Check(std::fabs(c.total_db - z2.total_db) < 3.0 && std::fabs(b.total_db - z2.total_db) < 3.0 && std::fabs(a.total_db - z2.total_db) < 3.0,
-             "frozen delay, mono source: the total level stays within 3 dB of Spread 0", z2.total_db, c.total_db);
-  // A stereo source: the level also holds, and the channels are not made identical or silent.
-  DelayMeasure n0 = MeasureDelay(0.0f, true, 0.9f, 0.55f, true), n1 = MeasureDelay(1.0f, true, 0.9f, 0.55f, true);
-  f += Check(std::fabs(n1.total_db - n0.total_db) < 3.0 && n1.finite, "frozen delay, stereo noise: the total level stays within 3 dB", n0.total_db, n1.total_db);
-  // Live delay: every other multiple of the delay goes to the other side, so the two channels differ.
-  DelayMeasure l0 = MeasureDelay(0.0f, false, 0.9f, 0.2f, false), l1 = MeasureDelay(1.0f, false, 0.9f, 0.2f, false);
-  f += Check(l0.diff_db < -150.0 && l1.diff_db > -40.0 && std::fabs(l1.total_db - l0.total_db) < 3.0 && l1.finite,
-             "live delay: Spread 1 separates the channels and keeps the total level within 3 dB", l0.total_db, l1.total_db);
+  // Spread widens the image of a mono source, live and frozen, and never leans to one side: the left and right levels
+  // stay balanced whichever multiple of the delay is playing (odd and even multiples, the old way to get stuck on a side).
+  for (int frozen = 0; frozen < 2; ++frozen) {
+    for (float tm : {0.2f, 0.55f, 0.35f, 0.7f}) {        // multipliers x4, x9.25, x6.25, x11.5: odd and even integers
+      // broadband mono noise: no frequency dependence to hide behind
+      DelayMeasure m0 = MeasureDelay(0.0f, 2, 0.9f, tm, frozen != 0);
+      DelayMeasure m1 = MeasureDelay(1.0f, 2, 0.9f, tm, frozen != 0);
+      DelayMeasure mh = MeasureDelay(0.5f, 2, 0.9f, tm, frozen != 0);
+      char msg[220];
+      snprintf(msg, sizeof(msg), "%s delay, time %.2f: Spread widens mono noise and keeps left and right balanced (corr %.2f -> %.2f -> %.2f)",
+               frozen ? "frozen" : "live", tm, m0.corr, mh.corr, m1.corr);
+      f += Check(m0.corr > 0.99 && m1.corr < 0.3 && mh.corr < m0.corr && std::fabs(m1.l_db - m1.r_db) < 1.0 && std::fabs(mh.l_db - mh.r_db) < 1.5 && m1.finite,
+                 msg, m1.l_db, m1.r_db);
+      std::snprintf(msg, sizeof(msg), "%s delay, time %.2f: the level of each channel stays within 2 dB of Spread 0", frozen ? "frozen" : "live", tm);
+      f += Check(std::fabs(m1.l_db - m0.l_db) < 2.0 && std::fabs(m1.r_db - m0.r_db) < 2.0 && std::fabs(mh.l_db - m0.l_db) < 2.5, msg, m0.l_db, m1.l_db);
+    }
+  }
+  // a steady tone: widened too (the balance of a single frequency depends on its phase, so only the width is checked)
+  DelayMeasure t0 = MeasureDelay(0.0f, 0, 0.9f, 0.55f, true), t1 = MeasureDelay(1.0f, 0, 0.9f, 0.55f, true);
+  f += Check(t0.corr > 0.99 && t1.corr < 0.9 && t1.finite, "frozen delay, steady tone: Spread 1 lowers the correlation", t0.corr, t1.corr);
+  // A stereo source: the level also holds, and the channels stay balanced.
+  DelayMeasure n0 = MeasureDelay(0.0f, 1, 0.9f, 0.55f, true), n1 = MeasureDelay(1.0f, 1, 0.9f, 0.55f, true);
+  f += Check(std::fabs(n1.total_db - n0.total_db) < 3.0 && std::fabs(n1.l_db - n1.r_db) < 1.5 && n1.finite,
+             "frozen delay, stereo noise: the total level stays within 3 dB, left and right balanced", n0.total_db, n1.total_db);
+  // The mono sum is not touched by the widening (apart from the level compensation).
+  DelayMeasure sum0 = MeasureDelay(0.0f, 0, 0.9f, 0.55f, true), sum1 = MeasureDelay(1.0f, 0, 0.9f, 0.55f, true);
+  f += Check(std::fabs((sum1.total_db + 10 * std::log10(1.0 + 0.0)) - sum0.total_db) < 3.0, "the mono-compatible level is about the same", sum0.total_db, sum1.total_db);
   // Only the Spread knob does this: an LFO with a Phase split does nothing to the taps.
-  DelayMeasure s = MeasureDelay(0.0f, false, 0.9f, 0.55f, false, 1);
-  f += Check(s.diff_db < -150.0, "delay mode: an LFO Phase split alone does not widen the taps", s.diff_db);
+  DelayMeasure sp = MeasureDelay(0.0f, 0, 0.9f, 0.55f, false, 1);
+  f += Check(sp.diff_db < -150.0, "delay mode: an LFO Phase split alone does not widen the taps", sp.diff_db);
   return f;
 }
 

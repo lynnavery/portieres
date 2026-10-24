@@ -29,6 +29,9 @@
 #ifndef BEADS_DSP_MULTITAP_DELAY_H_
 #define BEADS_DSP_MULTITAP_DELAY_H_
 
+#include <cmath>
+#include <cstring>
+
 #include "stmlib/stmlib.h"
 #include "stmlib/dsp/filter.h"
 
@@ -37,10 +40,76 @@
 
 #define ENABLE_BANDWIDTH_CONTROL
 
-// Level compensation for the tap panning (see MultitapDelay::Pan); set from measurements.
-#define kTapSpreadCompensation 0.3f
-
 namespace beads {
+
+// Port addition: Spread for delay mode. The taps read the buffer as it is, so there is nothing to pan:
+// the stereo image is the input's, and at a steady Time setting only a single tap sounds. Spread widens
+// that image instead by decorrelation. The mid signal (L+R)/2 goes through two different chains of three
+// allpass filters (flat in level, scattered in phase, a few milliseconds long), one for each channel, and
+// Spread blends each channel from the plain mid signal towards its own allpassed copy. At 1 the left and
+// right are two different phase-scrambled copies: each keeps its full level at every frequency, so
+// neither side can lean, and a mono echo comes out wide. The side signal (L-R)/2 is kept as it is, so a
+// stereo source stays what it was and gets extra width on top. The level is compensated.
+class TapWidener {
+ public:
+  TapWidener() { }
+  ~TapWidener() { }
+
+  void Init(float sample_rate) {
+    // samples at 48 kHz: about 3 to 8 ms; the two channels use different lengths
+    static const int kBase[2][kStages] = { { 149, 223, 331 }, { 181, 269, 397 } };
+    const float k = sample_rate / 48000.0f;
+    for (int c = 0; c < 2; ++c) {
+      for (int i = 0; i < kStages; ++i) {
+        int n = int(float(kBase[c][i]) * k + 0.5f);
+        length_[c][i] = n < 8 ? 8 : (n > kMaxLength ? kMaxLength : n);
+      }
+    }
+    Reset();
+  }
+
+  void Reset() {
+    memset(buffer_, 0, sizeof(buffer_));
+    for (int c = 0; c < 2; ++c) for (int i = 0; i < kStages; ++i) position_[c][i] = 0;
+  }
+
+  inline FloatFrame Process(const FloatFrame& in, float amount) {
+    const float mid = 0.5f * (in.l + in.r);
+    const float side = 0.5f * (in.l - in.r);
+    float a = mid, b = mid;
+    for (int i = 0; i < kStages; ++i) {
+      a = Allpass(0, i, a);
+      b = Allpass(1, i, b);
+    }
+    const float dry = 1.0f - amount;
+    // blending a signal with an uncorrelated copy of itself loses power: dry^2 + amount^2
+    const float comp = 1.0f / std::sqrt(dry * dry + amount * amount);
+    FloatFrame out;
+    out.l = (dry * mid + amount * a) * comp + side;
+    out.r = (dry * mid + amount * b) * comp - side;
+    return out;
+  }
+
+ private:
+  enum { kStages = 3, kMaxLength = 1024 };
+
+  // Schroeder allpass: v = x + g * v[n-D];  y = -g * v + v[n-D]
+  inline float Allpass(int c, int i, float x) {
+    const float g = 0.6f;
+    float* buf = buffer_[c][i];
+    int p = position_[c][i];
+    const float delayed = buf[p];
+    const float v = x + g * delayed;
+    buf[p] = v;
+    if (++p >= length_[c][i]) p = 0;
+    position_[c][i] = p;
+    return -g * v + delayed;
+  }
+
+  float buffer_[2][kStages][kMaxLength];
+  int length_[2][kStages];
+  int position_[2][kStages];
+};
 
 class MultitapDelay {
  public:
@@ -52,6 +121,7 @@ class MultitapDelay {
     for (int i = 0; i < 2; ++i) {
       filter_[i].Init();
     }
+    widener_.Init(sample_rate);
   }
   
   inline void Reset() {
@@ -59,6 +129,7 @@ class MultitapDelay {
       tap_[i].Init();
       no_latency_tap_[i].Init();
     }
+    widener_.Reset();
   }
   
   template<typename DelayLineType>
@@ -76,43 +147,19 @@ class MultitapDelay {
 
     FloatFrame mix;
     mix.l = mix.r = 0.0f;
-    if (spread <= 0.0f) {
-      // The original path, untouched.
-      for (int i = 0; i < DelayController::NUM_TAPS; ++i) {
-        tap_[i].Render(
-            delay_line,
-            taps.tap[i].delay,
-            taps.tap[i].gain * gain,
-            speed,
-            &mix);
-        no_latency_tap_[i].Render(
-            delay_line,
-            taps.tap[i].delay,
-            taps.tap[i].gain * (1.0f - gain),
-            speed,
-            &mix);
-      }
-    } else {
-      // Port addition: Spread. Every other tap is panned away from the centre, the even ones to the
-      // left and the odd ones to the right (a tap and its slave head have the same parity, so a
-      // crossfading pair stays on one side), with the same law the grains use.
-      for (int i = 0; i < DelayController::NUM_TAPS; ++i) {
-        FloatFrame t;
-        t.l = t.r = 0.0f;
-        tap_[i].Render(
-            delay_line,
-            taps.tap[i].delay,
-            taps.tap[i].gain * gain,
-            speed,
-            &t);
-        no_latency_tap_[i].Render(
-            delay_line,
-            taps.tap[i].delay,
-            taps.tap[i].gain * (1.0f - gain),
-            speed,
-            &t);
-        mix += Pan<DelayLineType::NUM_CHANNELS>(t, (i & 1) != 0, spread);
-      }
+    for (int i = 0; i < DelayController::NUM_TAPS; ++i) {
+      tap_[i].Render(
+          delay_line,
+          taps.tap[i].delay,
+          taps.tap[i].gain * gain,
+          speed,
+          &mix);
+      no_latency_tap_[i].Render(
+          delay_line,
+          taps.tap[i].delay,
+          taps.tap[i].gain * (1.0f - gain),
+          speed,
+          &mix);
     }
 
 #ifdef ENABLE_BANDWIDTH_CONTROL
@@ -139,45 +186,19 @@ class MultitapDelay {
       wet.l = filter_[0].Process<stmlib::FILTER_MODE_HIGH_PASS>(mix.l);
       wet.r = filter_[1].Process<stmlib::FILTER_MODE_HIGH_PASS>(mix.r);
     }
-    *out += mix + (wet - mix) * wet_amount;
+    FloatFrame tap_out = mix + (wet - mix) * wet_amount;
 #else
-    *out += mix;
+    FloatFrame tap_out = mix;
 #endif  // ENABLE_BANDWIDTH_CONTROL
+    if (spread > 0.0f) tap_out = widener_.Process(tap_out, spread);
+    *out += tap_out;
   }
 
  private:
-  // Pans a tap's stereo frame towards the left (or right) by `amount` 0..1: 0 leaves it as it is (the
-  // centre of the grains' pan law), 1 is hard left / hard right. The other channel is folded into the
-  // side the tap goes to, like the grains do, and the whole is scaled to hold the level steady.
-  template<int channels>
-  static inline FloatFrame Pan(const FloatFrame& in, bool right, float amount) {
-    const float pan = 0.5f * (1.0f - amount);          // 0.5 = as is, 0 = hard to the chosen side
-    const float q = 2.0f * pan;                        // 1 .. 0
-    const float far_side = q * (2.0f - q);             // what stays on the far channel
-    const float fold = (1.0f - q) * (1.0f + q);        // how much of it joins the near channel
-    const float comp = 1.0f / (1.0f + kTapSpreadCompensation * amount);
-    FloatFrame out;
-    if (channels == 2) {
-      if (!right) {
-        out.l = (in.l + fold * in.r) * comp;
-        out.r = far_side * in.r * comp;
-      } else {
-        out.r = (in.r + fold * in.l) * comp;
-        out.l = far_side * in.l * comp;
-      }
-    } else {
-      // A mono source: the grains' mono law, normalised so that "as is" (centre) is unity.
-      const float near_gain = (1.0f - pan) * (1.0f + pan) * (1.0f / 0.75f) * comp;
-      const float far_gain = pan * (2.0f - pan) * (1.0f / 0.75f) * comp;
-      out.l = in.l * (right ? far_gain : near_gain);
-      out.r = in.r * (right ? near_gain : far_gain);
-    }
-    return out;
-  }
-
   Tap<2048> tap_[DelayController::NUM_TAPS];
   Tap<1> no_latency_tap_[DelayController::NUM_TAPS];
   stmlib::Svf filter_[2];
+  TapWidener widener_;
 
   DISALLOW_COPY_AND_ASSIGN(MultitapDelay);
 };
