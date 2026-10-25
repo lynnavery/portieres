@@ -366,6 +366,40 @@ int TestPostMix() {
   return f;
 }
 
+// A Phase split must not make the LFO rough: with Steps and Smooth, the traces at the two edges of the field stay as smooth
+// as the one without a split (the smoothing runs separately at each edge).
+double TraceRoughness(float split, int shape, int steps, float smooth, double* lr_diff) {
+  const double sr = 48000; const int vs = 64;
+  Engine e; e.Setup(sr, vs, 3, false);
+  Params p; p.lfo[0].shape = shape; p.lfo[0].rate = 1.0f; p.lfo[0].steps = steps; p.lfo[0].smooth = smooth; p.lfo[0].split_deg = split;
+  std::vector<float> oL(vs), oR(vs);
+  const float* in[NUM_INPUTS] = { 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+  std::vector<double> L, R;
+  for (int k = 0; k < int(sr * 6); k += vs) {
+    e.Process(p, in, oL.data(), oR.data(), vs);
+    float vl, vr, ph; e.GetLfo(0, &vl, &vr, &ph);
+    if (k > sr) { L.push_back(vl); R.push_back(vr); }
+  }
+  double r = 0, d = 0;
+  for (size_t i = 2; i < L.size(); ++i) r += std::fabs(L[i] - 2 * L[i - 1] + L[i - 2]) + std::fabs(R[i] - 2 * R[i - 1] + R[i - 2]);
+  for (size_t i = 0; i < L.size(); ++i) d += std::fabs(L[i] - R[i]);
+  if (lr_diff) *lr_diff = d / double(L.size());
+  return r / (2.0 * double(L.size())) * 1000.0;
+}
+
+int TestEdgeSmoothing() {
+  int f = 0;
+  for (int shape : { beads::LFO_GLIDER, beads::LFO_SINE, beads::LFO_UP, beads::LFO_TRIANGLE }) {
+    double d0, d90, d255;
+    const double r0 = TraceRoughness(0.0f, shape, 4, 71.0f, &d0);
+    const double r90 = TraceRoughness(90.0f, shape, 4, 71.0f, &d90), r255 = TraceRoughness(255.0f, shape, 4, 71.0f, &d255);
+    char msg[160];
+    std::snprintf(msg, sizeof(msg), "shape %d, Steps 4, Smooth 71: a 90 / 255 degree split keeps the edge traces as smooth as without one", shape);
+    f += Check(r90 < 2.0 * r0 + 0.05 && r255 < 2.0 * r0 + 0.05 && d90 > 0.01 && d255 > 0.01, msg, r0, std::max(r90, r255));
+  }
+  return f;
+}
+
 int TestModulation() {
   int f = 0;
   Params base; base.density = 0.9f; base.size = 0.2f;
@@ -439,7 +473,7 @@ int TestModulation() {
     g.depth01[0] = 0.0f; g.offset01[0] = 0.3f;
     f += Check(std::fabs(g.Lfo(0, 0.0) - 0.3f) < 1e-6, "depth 0: the output is the offset", g.Lfo(0, 0.0));
     // hold returns the held value to every read, whatever the phase
-    g.depth01[0] = 1.0f; g.offset01[0] = 0.5f; g.holding[0] = 1; g.held[0] = 0.8f;
+    g.depth01[0] = 1.0f; g.offset01[0] = 0.5f; g.holding[0] = 1; for (int k = 0; k < 3; ++k) g.held[0][k] = 0.8f;
     f += Check(std::fabs(g.Lfo(0, 0.0) - 0.8f) < 1e-6 && std::fabs(g.Lfo(0, 0.3) - 0.8f) < 1e-6, "hold: every read returns the held value", g.Lfo(0, 0.0), g.Lfo(0, 0.3));
   }
 
@@ -857,6 +891,7 @@ int main() {
   fails += TestDelaySpread();
   fails += TestSeedStep();
   fails += TestPostMix();
+  fails += TestEdgeSmoothing();
   printf("%d failures\n", fails);
   return fails != 0;
 }

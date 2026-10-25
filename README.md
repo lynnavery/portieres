@@ -34,6 +34,9 @@ shape, wave shape, steps, jitter, smooth, hold, depth and offset, a Free (Hz, x1
     1/64 1/48 1/32 1/24 1/16 1/12 1/8 1/6 3/16 1/4 5/16 1/3 3/8 1/2 3/4 1 1.5 2 3 4 6 8 16 32; 1/4 = one beat, 1 = a whole note);
   - `split` (degrees, the stereo split, see below) and `reset` (restarts the cycle).
   `uni <0|1>` is the old per-LFO polarity switch; it now just sets the polarity of every cell of that LFO.
+- **Smooth, jitter and a Phase split:** the Smooth slew runs separately for the centre of the field and for each of its two edges, so a
+  Phase split (stereo split) keeps every trace as smooth as it is without one. (A single smoother shared with a correction borrowed
+  from the centre made Steps / Random / Glider shapes spiky as soon as Phase was above 0.) Grains between the edges blend the two.
 - **LFO signals**: outlets 6 to 9 carry the LFOs as signals, 0..1: LFO 1 at the left edge of the stereo field, LFO 1 right edge, LFO 2 left, LFO 2
   right (the same two values the grains see at the extremes of the field; they are the same signal when `split` is 0). The device feeds them to
   `live.scope~` for the scrolling preview. They are held per codec block (about 0.25 ms) and lined up with the audio output.

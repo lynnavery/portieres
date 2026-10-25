@@ -81,9 +81,12 @@ struct GrainModulation {
   uint8_t steps[kModLfos];     // 0 = off, 1..24 levels (not for Square / Random / Bin)
   float offset01[kModLfos];    // centre of the output, 0..1 (0.5 = the dial at 0)
   float depth01[kModLfos];     // 0..1
-  float post[kModLfos];        // jitter + smoothing, added to the pure value (set per block by the host)
+  // jitter + smoothing, added to the pure value (set per block by the host). One for the centre [0] and one for each
+  // edge of the stereo field, left [1] and right [2], each from its own smoother: a stepped or random shape changes
+  // value at a different moment at each edge, so a correction borrowed from the centre would turn into spikes.
+  float post[kModLfos][3];
   uint8_t holding[kModLfos];   // 1 = output frozen at held[]
-  float held[kModLfos];        // the held value, before offset / depth scaling
+  float held[kModLfos][3];     // the held value (centre, left, right), before offset / depth scaling
   uint8_t unipolar[MOD_NUM_DESTINATIONS][kModLfos];   // per matrix cell: 1 = LFO runs 0..1, 0 = -1..1 (default)
   uint32_t seed[kModLfos];
   float depth[MOD_NUM_DESTINATIONS][kModLfos];   // -1..1 (matrix percent / 100)
@@ -92,7 +95,8 @@ struct GrainModulation {
   GrainModulation() {
     for (int i = 0; i < kModLfos; ++i) {
       cycles[i] = 0.0; split[i] = 0.0f; shape[i] = 0; wave[i] = 0.0f; steps[i] = 0;
-      offset01[i] = 0.5f; depth01[i] = 1.0f; post[i] = 0.0f; holding[i] = 0; held[i] = 0.5f;
+      offset01[i] = 0.5f; depth01[i] = 1.0f; holding[i] = 0;
+      for (int k = 0; k < 3; ++k) { post[i][k] = 0.0f; held[i][k] = 0.5f; }
       seed[i] = 0x1234567u * uint32_t(i + 1);
       for (int d = 0; d < MOD_NUM_DESTINATIONS; ++d) { depth[d][i] = 0.0f; unipolar[d][i] = 0; }
     }
@@ -153,10 +157,19 @@ struct GrainModulation {
     return o < 0.0f ? 0.0f : (o > 1.0f ? 1.0f : o);
   }
 
+  // The per-position correction for a read `offset` cycles from the centre: exact at the centre and at the two edges
+  // (offset = -/+ split/2), blended linearly in between for grains at other positions in the field.
+  inline float EdgeBlend(const float v[3], int i, double offset) const {
+    if (split[i] <= 0.0f) return v[0];
+    double u = offset / (0.5 * double(split[i]));
+    u = u < -1.0 ? -1.0 : (u > 1.0 ? 1.0 : u);
+    return u < 0.0 ? v[0] + (v[1] - v[0]) * float(-u) : v[0] + (v[2] - v[0]) * float(u);
+  }
+
   // LFO i evaluated `offset` cycles away from its current phase: 0..1.
   inline float Lfo(int i, double offset) const {
-    if (holding[i]) return Scale(i, held[i]);
-    return Scale(i, Shape(i, cycles[i] + offset) + post[i]);
+    if (holding[i]) return Scale(i, EdgeBlend(held[i], i, offset));
+    return Scale(i, Shape(i, cycles[i] + offset) + EdgeBlend(post[i], i, offset));
   }
 
   // Modulation of `dest` (in the destination's own units) at stereo position u.

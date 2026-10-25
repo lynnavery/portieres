@@ -81,7 +81,7 @@ struct Engine::Impl : public beads::GrainObserver {
   std::atomic<float> ro_l[kNumLfos], ro_r[kNumLfos], ro_phase[kNumLfos], ro_hz[kNumLfos];
   float cur_hz[kNumLfos] = { 1.0f, 1.0f, 1.0f, 1.0f };   // effective speed of each LFO, per block
   // time-domain state of the LFO pipeline (jitter, smooth, hold)
-  float smooth_y[kNumLfos] = { 0.5f, 0.5f, 0.5f, 0.5f };
+  float smooth_y[kNumLfos][3] = {};   // the smoother of each LFO at the centre and at the left and right edge of the field
   float jit_phase[kNumLfos] = { 0, 0, 0, 0 }, jit_prev[kNumLfos] = { 0, 0, 0, 0 }, jit_next[kNumLfos] = { 0, 0, 0, 0 };
   uint32_t jit_rng[kNumLfos] = { 0x2545F491u, 0x9E3779B9u, 0x6C078965u, 0xD1B54A35u };
   bool was_hold[kNumLfos] = { false, false, false, false };
@@ -353,7 +353,6 @@ void Engine::Process(const Params& p, const float* const* in, float* out_l,
 
         // Time-domain part: jitter (a random wobble at 10 Hz) then smooth (a slew of 0..200 ms), both on top
         // of the pure shape at the centre. Per-grain reads add the same `post`.
-        const float pure = gm.Shape(i, gm.cycles[i]);
         s.jit_phase[i] += float(10.0 * block_seconds);
         while (s.jit_phase[i] >= 1.0f) {
           s.jit_phase[i] -= 1.0f;
@@ -362,17 +361,21 @@ void Engine::Process(const Params& p, const float* const* in, float* out_l,
         }
         const float jit = Clamp(lp.jitter, 0.0f, 100.0f) / 150.0f *
                           (s.jit_prev[i] + (s.jit_next[i] - s.jit_prev[i]) * s.jit_phase[i]);
-        const float x = pure + jit;
-        if (!s.smooth_init) s.smooth_y[i] = x;
         const float n_smooth = std::max(1.0f, Clamp(lp.smooth, 0.0f, 100.0f) * 2.0f * 0.001f * float(s.codec_sr));
-        s.smooth_y[i] += (x - s.smooth_y[i]) * (1.0f - std::pow(1.0f - 1.0f / n_smooth, float(b)));
-        gm.post[i] = s.smooth_y[i] - pure;
-        if (lp.hold) {
-          if (!s.was_hold[i]) gm.held[i] = s.smooth_y[i];      // sample-and-hold at the press
-          gm.holding[i] = 1;
-        } else {
-          gm.holding[i] = 0;
+        const float slew = 1.0f - std::pow(1.0f - 1.0f / n_smooth, float(b));
+        // Each position (centre, left edge, right edge) has its own pure shape and its own smoother, so a Phase split
+        // keeps every trace as smooth as it is without one.
+        const double half = 0.5 * double(gm.split[i]);
+        const double shifts[3] = { 0.0, -half, +half };
+        for (int k = 0; k < 3; ++k) {
+          const float pure = gm.Shape(i, gm.cycles[i] + shifts[k]);
+          const float x = pure + jit;
+          if (!s.smooth_init) s.smooth_y[i][k] = x;
+          s.smooth_y[i][k] += (x - s.smooth_y[i][k]) * slew;
+          gm.post[i][k] = s.smooth_y[i][k] - pure;
+          if (lp.hold && !s.was_hold[i]) gm.held[i][k] = s.smooth_y[i][k];      // sample-and-hold at the press
         }
+        gm.holding[i] = lp.hold ? 1 : 0;
         s.was_hold[i] = lp.hold != 0;
       }
       s.smooth_init = true;
