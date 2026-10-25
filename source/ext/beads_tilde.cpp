@@ -107,6 +107,9 @@ void ext_main(void* r) {
   CLASS_ATTR_LONG(c, "seedstep", 0, t_beads, params.seed_step);
   CLASS_ATTR_FILTER_CLIP(c, "seedstep", 0, 15);
   CLASS_ATTR_LABEL(c, "seedstep", 0, "Which pulse of each divided group the seed fires on (0 = first)");
+  CLASS_ATTR_FLOAT(c, "wetgain", 0, t_beads, params.wet_gain_db);
+  CLASS_ATTR_FILTER_CLIP(c, "wetgain", -48., 24.);
+  CLASS_ATTR_LABEL(c, "wetgain", 0, "Output gain of the processed (wet) signal, dB");
   CLASS_ATTR_LONG(c, "drywetpost", 0, t_beads, params.drywet_post);
   CLASS_ATTR_FILTER_CLIP(c, "drywetpost", 0, 1);
   CLASS_ATTR_STYLE_LABEL(c, "drywetpost", 0, "onoff", "Dry/Wet after wobble and reverb (they only touch the wet signal)");
@@ -150,6 +153,7 @@ void ext_main(void* r) {
   CLASS_ATTR_DEFAULT(c, "media", 0, "3");
   CLASS_ATTR_DEFAULT(c, "wetcap", 0, "1");
   CLASS_ATTR_DEFAULT(c, "wetcap_db", 0, "3.");
+  CLASS_ATTR_DEFAULT(c, "wetgain", 0, "0.");
   CLASS_ATTR_DEFAULT(c, "overlap", 0, "0");
   CLASS_ATTR_DEFAULT(c, "overlap_amt", 0, "1.");
 

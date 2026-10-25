@@ -433,6 +433,7 @@ void Engine::Process(const Params& p, const float* const* in, float* out_l,
       m.reverb_amount = Clamp((p.reverb + off[DEST_REVERB]) * 1.005f, 0.0f, 1.0f);
       m.output_gate = p.gate_out != 0;
       m.post_mix = p.drywet_post != 0;
+      m.wet_gain = std::pow(10.0f, Clamp(p.wet_gain_db, -48.0f, 24.0f) / 20.0f);
       m.clean_dry = clean_frames;
       m.wet_cap_ratio = p.wetcap ? std::pow(10.0f, Clamp(p.wetcap_db, 0.0f, 24.0f) / 20.0f) : 0.0f;
 

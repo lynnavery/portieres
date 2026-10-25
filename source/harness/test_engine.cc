@@ -400,6 +400,37 @@ int TestEdgeSmoothing() {
   return f;
 }
 
+// Wet output gain: +/- dB on the processed signal, Dry/Wet fully wet, no reverb.
+double WetLevelDb(float gain_db, bool post, int media, float dry_wet = 1.0f) {
+  const double sr = 48000; const int vs = 64;
+  stmlib::Random::Seed(9);
+  Engine e; e.Setup(sr, vs, media, false);
+  Params p; p.size = 0.3f; p.density = 0.9f; p.dry_wet = dry_wet; p.reverb = 0.0f; p.wetcap = 0; p.wet_gain_db = gain_db; p.drywet_post = post; p.seed_button = 2;
+  std::vector<float> iL(vs), oL(vs), oR(vs);
+  const float* in[NUM_INPUTS] = { iL.data(), iL.data(), 0, 0, 0, 0, 0, 0, 0 };
+  double s = 0, n = 0;
+  for (int k = 0; k < int(sr * 4); k += vs) {
+    for (int i = 0; i < vs; ++i) iL[i] = 0.1f * std::sin(2 * M_PI * 220.0 * (k + i) / sr);
+    e.Process(p, in, oL.data(), oR.data(), vs);
+    if (k > sr * 1.5) for (int i = 0; i < vs; ++i) { s += oL[i] * oL[i] + oR[i] * oR[i]; n += 2; }
+  }
+  return 10 * std::log10(s / n + 1e-20);
+}
+
+int TestWetGain() {
+  int f = 0;
+  const double base = WetLevelDb(0.0f, false, 3);
+  f += Check(std::fabs(WetLevelDb(6.0f, false, 3) - base - 6.0) < 0.3, "wet gain +6 dB: the wet-only output is 6 dB louder", base, WetLevelDb(6.0f, false, 3));
+  f += Check(std::fabs(WetLevelDb(-12.0f, false, 3) - base + 12.0) < 0.3, "wet gain -12 dB: 12 dB quieter", base, WetLevelDb(-12.0f, false, 3));
+  f += Check(WetLevelDb(-48.0f, false, 3) < base - 40.0, "wet gain -48 dB: practically silent", WetLevelDb(-48.0f, false, 3));
+  // fully dry: the wet gain has nothing to act on
+  f += Check(std::fabs(WetLevelDb(12.0f, false, 3, 0.0f) - WetLevelDb(0.0f, false, 3, 0.0f)) < 0.01, "Dry/Wet fully dry: the wet gain does not touch the dry signal", WetLevelDb(0.0f, false, 3, 0.0f), WetLevelDb(12.0f, false, 3, 0.0f));
+  // post-mix: same behaviour
+  const double pbase = WetLevelDb(0.0f, true, 3);
+  f += Check(std::fabs(WetLevelDb(6.0f, true, 3) - pbase - 6.0) < 0.4, "wet gain +6 dB also works with Dry/Wet after the reverb", pbase, WetLevelDb(6.0f, true, 3));
+  return f;
+}
+
 int TestModulation() {
   int f = 0;
   Params base; base.density = 0.9f; base.size = 0.2f;
@@ -892,6 +923,7 @@ int main() {
   fails += TestSeedStep();
   fails += TestPostMix();
   fails += TestEdgeSmoothing();
+  fails += TestWetGain();
   printf("%d failures\n", fails);
   return fails != 0;
 }

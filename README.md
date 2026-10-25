@@ -57,6 +57,9 @@ shape, wave shape, steps, jitter, smooth, hold, depth and offset, a Free (Hz, x1
 - **Phase alone creates the stereo split.** An LFO that feeds time, shape or pitch and has a `split` spreads the grains across the
   stereo field by itself (full width at 180 degrees, half at 90), and each grain's position in the field decides which LFO phase
   it samples: the grain at the far left always sees `-split/2`, the far right `+split/2`. With `split 0` an LFO never moves the pan.
+- **Wet gain** (`wetgain`, attribute, dB, -48..+24, default 0): output gain of the processed signal. It acts on the wet path after the level cap
+  and before the wobble and reverb (and before the Dry/Wet mix), so it trims how loud the processed sound is without touching the dry.
+  0 dB is exactly the original.
 - **Dry/Wet position** (`drywetpost`, attribute, 0 or 1): where the Dry/Wet balance sits relative to the dirty-tape wobble, the
   pre-reverb limiter and the reverb. 0 (the original) mixes dry and wet first, so wobble and reverb act on the mix, dry included. 1
   mixes after them: only the wet signal is wobbled and reverberated, the dry stays exactly as it came in (and with Dry/Wet fully dry

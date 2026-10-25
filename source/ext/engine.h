@@ -70,6 +70,7 @@ struct Params {
   // input; the original relied on a fixed 0.9 peak limiter and on the hardware input AGC.
   long wetcap = 1;                      // 1 = hold the wet path to `wetcap_db` above the input level
   float wetcap_db = 3.0f;               // how far above a slow estimate of the input it may go
+  float wet_gain_db = 0.0f;             // output gain of the processed (wet) signal, dB (after the level cap)
   long drywet_post = 0;                 // 1 = Dry/Wet after wobble and reverb (they only touch the wet signal)
   long overlap = 0;                     // 1 = stronger overlap scaling (see overlap_amt)
   float overlap_amt = 1.0f;             // 0 = original 1/sqrt(grains playing) .. 1 = 1/(grains playing)

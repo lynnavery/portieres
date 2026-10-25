@@ -95,6 +95,7 @@ void Processor::Configure(Media media, bool mono) {
   cap_in_smooth_ = 0.0f;
   cap_wet_pow_ = 0.0f;
   cap_gain_ = 1.0f;
+  wet_gain_ = 1.0f;
 
   float sr = sample_rate();
   pre_reverb_limiter_.Init(1.0f / (sr * 4.0f), 0.9f);
@@ -243,6 +244,7 @@ void Processor::Process(
   const float wet_slew = 1.0f / (sr_cap * 0.15f);
   const float gain_attack = 1.0f / (sr_cap * 0.03f);
   const float gain_release = 1.0f / (sr_cap * 0.4f);
+  const float wet_gain_slew = 1.0f / (sr_cap * 0.02f);
 
   const bool post_mix = mix_parameters.post_mix;
   FloatFrame dry_only[size];
@@ -270,6 +272,10 @@ void Processor::Process(
     } else {
       cap_gain_ = 1.0f;
     }
+    // output gain of the wet signal, smoothed over about 20 ms so turning it does not click
+    wet_gain_ += wet_gain_slew * (mix_parameters.wet_gain - wet_gain_);
+    wet_signal.l *= wet_gain_;
+    wet_signal.r *= wet_gain_;
     if (post_mix) {
       dry_only[i] = dry_gain * dry_signal[i];
       out[i] = wet_signal;           // wobble and reverb below see the wet signal alone

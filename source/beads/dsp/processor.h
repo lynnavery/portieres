@@ -75,6 +75,9 @@ class Processor {
     // wet signal, the dry stays as it came in. With `clean_dry` (the input before the soft clip) the dry also skips the
     // bit-crushing of the medium (8-bit mu-law, 12-bit), so it really is unaffected.
     bool post_mix = false;
+    // Port addition: output gain of the processed (wet) signal, linear. Applied after the level cap and before wobble and
+    // reverb, so it trims the wet signal at the end of its own path. 1 = untouched.
+    float wet_gain = 1.0f;
     const FloatFrame* clean_dry = nullptr;
   };
   
@@ -226,6 +229,7 @@ class Processor {
   float cap_in_pow_ = 0.0f;    // slow estimate of the input power (long memory, held while frozen)
   float cap_wet_pow_ = 0.0f;   // smoothed power of the wet signal
   float cap_gain_ = 1.0f;      // gain currently applied to the wet signal
+  float wet_gain_ = 1.0f;      // smoothed output gain of the wet signal (MixParameters::wet_gain)
 
   WowAndFlutter wow_and_flutter_;
   Reverb reverb_;
